@@ -8820,7 +8820,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 				logger.LegacyPrintf("service.gateway", "CountTokens passthrough model mapping: %s -> %s (account: %s)", reqModel, mappedModel, account.Name)
 			}
 		}
-		return s.forwardCountTokensAnthropicAPIKeyPassthrough(ctx, c, account, passthroughBody)
+		return s.forwardCountTokensAnthropicAPIKeyPassthrough(ctx, c, account, passthroughBody, parsed)
 	}
 
 	// Bedrock 不支持 count_tokens 端点
@@ -8977,6 +8977,17 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 			)
 		}
 
+		// 对于上游 5xx 错误，回退到本地 token 估算，避免客户端因 count_tokens 失败而中断工作流。
+		// 4xx 错误仍透传（请求本身有问题）。
+		if resp.StatusCode >= 500 {
+			inputTokens := estimateInputTokens(parsed)
+			logger.LegacyPrintf("service.gateway",
+				"count_tokens upstream error %d, falling back to local estimation: %d tokens (account=%d)",
+				resp.StatusCode, inputTokens, account.ID)
+			c.JSON(http.StatusOK, gin.H{"input_tokens": inputTokens})
+			return nil
+		}
+
 		// 返回简化的错误响应
 		errMsg := "Upstream request failed"
 		switch resp.StatusCode {
@@ -8997,7 +9008,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	return nil
 }
 
-func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx context.Context, c *gin.Context, account *Account, body []byte) error {
+func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx context.Context, c *gin.Context, account *Account, body []byte, parsed *ParsedRequest) error {
 	token, tokenType, err := s.GetAccessToken(ctx, account)
 	if err != nil {
 		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to get access token")
@@ -9088,6 +9099,16 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 			Message:            upstreamMsg,
 			Detail:             upstreamDetail,
 		})
+
+		// 对于上游 5xx 错误，回退到本地 token 估算。
+		if resp.StatusCode >= 500 {
+			inputTokens := estimateInputTokens(parsed)
+			logger.LegacyPrintf("service.gateway",
+				"count_tokens passthrough upstream error %d, falling back to local estimation: %d tokens (account=%d)",
+				resp.StatusCode, inputTokens, account.ID)
+			c.JSON(http.StatusOK, gin.H{"input_tokens": inputTokens})
+			return nil
+		}
 
 		errMsg := "Upstream request failed"
 		switch resp.StatusCode {

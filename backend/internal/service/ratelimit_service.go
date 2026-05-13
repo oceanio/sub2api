@@ -1460,6 +1460,15 @@ func (s *RateLimitService) RecoverAccountAfterSuccessfulTest(ctx context.Context
 	return s.RecoverAccountState(ctx, accountID, AccountRecoveryOptions{})
 }
 
+// IsAccountSchedulable 查询账号当前是否处于可调度状态。
+func (s *RateLimitService) IsAccountSchedulable(ctx context.Context, accountID int64) (bool, error) {
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		return false, err
+	}
+	return account.IsSchedulable(), nil
+}
+
 func (s *RateLimitService) ClearTempUnschedulable(ctx context.Context, accountID int64) error {
 	if err := s.accountRepo.ClearTempUnschedulable(ctx, accountID); err != nil {
 		return err

@@ -120,6 +120,23 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 }
 
 func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *ScheduledTestPlan) {
+	// auto_recover 模式下，账号当前可调度则无需测试，直接推进下次执行时间。
+	if plan.AutoRecover && s.rateLimitSvc != nil {
+		schedulable, err := s.rateLimitSvc.IsAccountSchedulable(ctx, plan.AccountID)
+		if err != nil {
+			logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d IsAccountSchedulable error: %v", plan.ID, err)
+		} else if schedulable {
+			logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d account=%d is healthy, skipping test", plan.ID, plan.AccountID)
+			nextRun, err := computeNextRun(plan.CronExpression, time.Now())
+			if err != nil {
+				logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d computeNextRun error: %v", plan.ID, err)
+				return
+			}
+			_ = s.planRepo.UpdateAfterRun(ctx, plan.ID, time.Now(), nextRun)
+			return
+		}
+	}
+
 	result, err := s.accountTestSvc.RunTestBackground(ctx, plan.AccountID, plan.ModelID)
 	if err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d RunTestBackground error: %v", plan.ID, err)
