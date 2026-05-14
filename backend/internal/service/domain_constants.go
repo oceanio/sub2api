@@ -386,6 +386,13 @@ const (
 
 	// Web Search Emulation
 	SettingKeyWebSearchEmulationConfig = "web_search_emulation_config" // JSON 配置
+
+	// Request Debug Log
+	SettingKeyDebugRequestLogEnabled       = "debug_request_log_enabled"        // 调试日志全局开关（默认关闭）
+	SettingKeyDebugRequestLogTTLHours      = "debug_request_log_ttl_hours"      // 保留时长（小时，默认 168 = 7天）
+	SettingKeyDebugRequestLogSampleRate    = "debug_request_log_sample_rate"    // 采样率 1-100（默认 100）
+	SettingKeyDebugRequestLogRedactHeaders = "debug_request_log_redact_headers" // 是否脱敏请求头（默认 true）
+	SettingKeyDebugRequestLogBodyLimit     = "debug_request_log_body_limit_bytes" // body 截断字节数（0=不截断，默认 1024）
 )
 
 // AdminAPIKeyPrefix is the prefix for admin API keys (distinct from user "sk-" keys).

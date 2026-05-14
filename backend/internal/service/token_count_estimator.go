@@ -13,6 +13,12 @@ var (
 	tiktokenErr  error
 )
 
+// claudeImageTokenEstimate 是 Claude 协议图片块的保守 token 估算值。
+// 官方公式 tokens = (width * height) / 750，单张上限 ~1600。
+// fallback 路径无法获取图片实际尺寸（base64 解码代价过高），
+// 用 1500 作为接近上限的保守值，避免严重低估多模态请求成本。
+const claudeImageTokenEstimate = 1500
+
 func getSharedTiktokenEncoding() (*tiktoken.Tiktoken, error) {
 	tiktokenOnce.Do(func() {
 		tiktokenEnc, tiktokenErr = tiktoken.GetEncoding("cl100k_base")
@@ -22,32 +28,35 @@ func getSharedTiktokenEncoding() (*tiktoken.Tiktoken, error) {
 
 // estimateInputTokens estimates input token count from a parsed request using
 // tiktoken cl100k_base encoding (close to Claude's tokenizer). Falls back to
-// rune-based estimation if tiktoken is unavailable.
+// rune-based estimation if tiktoken is unavailable. Image blocks are counted
+// with a conservative per-image estimate since fallback path cannot decode
+// image dimensions cheaply.
 func estimateInputTokens(parsed *ParsedRequest) int {
 	var buf strings.Builder
-	extractTokenEstimatorText(parsed.System, &buf)
-	extractTokenEstimatorText(parsed.Messages, &buf)
+	imageCount := 0
+	extractTokenEstimatorText(parsed.System, &buf, &imageCount)
+	extractTokenEstimatorText(parsed.Messages, &buf, &imageCount)
 	text := buf.String()
 
+	textTokens := 0
 	enc, err := getSharedTiktokenEncoding()
 	if err != nil {
 		// ~3 runes per token on average for mixed Chinese/English
-		n := len([]rune(text)) / 3
-		if n < 1 {
-			return 1
-		}
-		return n
+		textTokens = len([]rune(text)) / 3
+	} else {
+		textTokens = len(enc.Encode(text, nil, nil))
 	}
-	tokens := enc.Encode(text, nil, nil)
-	if len(tokens) < 1 {
+
+	total := textTokens + imageCount*claudeImageTokenEstimate
+	if total < 1 {
 		return 1
 	}
-	return len(tokens)
+	return total
 }
 
 // extractTokenEstimatorText recursively extracts meaningful text content
-// from Anthropic message/system structures into buf.
-func extractTokenEstimatorText(v any, buf *strings.Builder) {
+// from Anthropic message/system structures into buf, and counts image blocks.
+func extractTokenEstimatorText(v any, buf *strings.Builder, images *int) {
 	if v == nil {
 		return
 	}
@@ -56,6 +65,13 @@ func extractTokenEstimatorText(v any, buf *strings.Builder) {
 		buf.WriteString(val)
 		buf.WriteByte('\n')
 	case map[string]any:
+		// image block: {"type": "image", "source": {...}}
+		if t, ok := val["type"].(string); ok && t == "image" {
+			if images != nil {
+				*images++
+			}
+			return
+		}
 		// text block: {"type": "text", "text": "..."}
 		if text, ok := val["text"].(string); ok {
 			buf.WriteString(text)
@@ -63,15 +79,15 @@ func extractTokenEstimatorText(v any, buf *strings.Builder) {
 		}
 		// message content or tool_result content
 		if content, ok := val["content"]; ok {
-			extractTokenEstimatorText(content, buf)
+			extractTokenEstimatorText(content, buf, images)
 		}
 		// tool_use input arguments
 		if input, ok := val["input"]; ok {
-			extractTokenEstimatorText(input, buf)
+			extractTokenEstimatorText(input, buf, images)
 		}
 	case []any:
 		for _, item := range val {
-			extractTokenEstimatorText(item, buf)
+			extractTokenEstimatorText(item, buf, images)
 		}
 	}
 }

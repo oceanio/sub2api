@@ -526,6 +526,13 @@ export interface SystemSettings {
   // Affiliate (邀请返利) feature switch
   affiliate_enabled: boolean;
 
+  // Request debug log
+  debug_request_log_enabled: boolean;
+  debug_request_log_ttl_hours: number;
+  debug_request_log_sample_rate: number;
+  debug_request_log_redact_headers: boolean;
+  debug_request_log_body_limit_bytes: number;
+
   // OpenAI fast/flex policy
   openai_fast_policy_settings?: OpenAIFastPolicySettings;
 }
@@ -720,6 +727,13 @@ export interface UpdateSettingsRequest {
 
   // Affiliate (邀请返利) feature switch
   affiliate_enabled?: boolean;
+
+  // Request debug log
+  debug_request_log_enabled?: boolean;
+  debug_request_log_ttl_hours?: number;
+  debug_request_log_sample_rate?: number;
+  debug_request_log_redact_headers?: boolean;
+  debug_request_log_body_limit_bytes?: number;
 
   // OpenAI fast/flex policy
   openai_fast_policy_settings?: OpenAIFastPolicySettings;

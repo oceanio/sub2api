@@ -52,6 +52,7 @@ type GatewayHandler struct {
 	maxAccountSwitchesGemini  int
 	cfg                       *config.Config
 	settingService            *service.SettingService
+	debugLogService           *service.RequestDebugLogService
 }
 
 // NewGatewayHandler creates a new GatewayHandler
@@ -108,6 +109,11 @@ func NewGatewayHandler(
 		cfg:                       cfg,
 		settingService:            settingService,
 	}
+}
+
+// SetDebugLogService injects the debug log service (optional, no-op if nil).
+func (h *GatewayHandler) SetDebugLogService(svc *service.RequestDebugLogService) {
+	h.debugLogService = svc
 }
 
 // Messages handles Claude API compatible messages endpoint
@@ -435,10 +441,19 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
+			shouldDebugLog := h.debugLogService != nil && h.debugLogService.ShouldRecord(c.Request.Context())
+			var respCap *responseCapture
+			if shouldDebugLog {
+				respCap = newResponseCapture(c.Writer, h.debugLogService.MaxBodyBytes())
+				c.Writer = respCap
+			}
 			if account.Platform == service.PlatformAntigravity {
 				result, err = h.antigravityGatewayService.ForwardGemini(requestCtx, c, account, reqModel, "generateContent", reqStream, body, hasBoundSession)
 			} else {
 				result, err = h.geminiCompatService.Forward(requestCtx, c, account, body)
+			}
+			if respCap != nil {
+				c.Writer = respCap.ResponseWriter
 			}
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
@@ -532,6 +547,13 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					).Error("gateway.record_usage_failed", zap.Error(err))
 				}
 			})
+			if shouldDebugLog {
+				var respBody []byte
+				if respCap != nil {
+					respBody = respCap.captured()
+				}
+				enqueueDebugLog(h.debugLogService, c.Request.Context(), result.RequestID, apiKey, reqModel, reqStream, service.DebugLogProtocolAnthropic, c.Request.Header, body, respBody)
+			}
 			return
 		}
 	}
@@ -751,10 +773,19 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
+			shouldDebugLog := h.debugLogService != nil && h.debugLogService.ShouldRecord(c.Request.Context())
+			var respCap *responseCapture
+			if shouldDebugLog {
+				respCap = newResponseCapture(c.Writer, h.debugLogService.MaxBodyBytes())
+				c.Writer = respCap
+			}
 			if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
 				result, err = h.antigravityGatewayService.Forward(requestCtx, c, account, body, hasBoundSession)
 			} else {
 				result, err = h.gatewayService.Forward(requestCtx, c, account, parsedReq)
+			}
+			if respCap != nil {
+				c.Writer = respCap.ResponseWriter
 			}
 
 			// 兜底释放串行锁（正常情况已通过回调提前释放）
@@ -920,6 +951,13 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					).Error("gateway.record_usage_failed", zap.Error(err))
 				}
 			})
+			if shouldDebugLog {
+				var respBody []byte
+				if respCap != nil {
+					respBody = respCap.captured()
+				}
+				enqueueDebugLog(h.debugLogService, c.Request.Context(), result.RequestID, currentAPIKey, reqModel, reqStream, service.DebugLogProtocolAnthropic, c.Request.Header, body, respBody)
+			}
 			return
 		}
 		if !retryWithFallback {

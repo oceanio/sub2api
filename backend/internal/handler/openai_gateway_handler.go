@@ -37,6 +37,12 @@ type OpenAIGatewayHandler struct {
 	imageLimiter             *imageConcurrencyLimiter
 	maxAccountSwitches       int
 	cfg                      *config.Config
+	debugLogService          *service.RequestDebugLogService
+}
+
+// SetDebugLogService injects the debug log service (optional, no-op if nil).
+func (h *OpenAIGatewayHandler) SetDebugLogService(svc *service.RequestDebugLogService) {
+	h.debugLogService = svc
 }
 
 func resolveOpenAIMessagesDispatchMappedModel(apiKey *service.APIKey, requestedModel string) string {
@@ -330,7 +336,16 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		if channelMapping.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
+		shouldDebugLog := h.debugLogService != nil && h.debugLogService.ShouldRecord(c.Request.Context())
+		var respCap *responseCapture
+		if shouldDebugLog {
+			respCap = newResponseCapture(c.Writer, h.debugLogService.MaxBodyBytes())
+			c.Writer = respCap
+		}
 		result, err := h.gatewayService.Forward(c.Request.Context(), c, account, forwardBody)
+		if respCap != nil {
+			c.Writer = respCap.ResponseWriter
+		}
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
@@ -447,6 +462,13 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				).Error("openai.record_usage_failed", zap.Error(err))
 			}
 		})
+		if shouldDebugLog {
+			var respBody []byte
+			if respCap != nil {
+				respBody = respCap.captured()
+			}
+			enqueueDebugLog(h.debugLogService, c.Request.Context(), result.RequestID, apiKey, reqModel, reqStream, service.DebugLogProtocolOpenAI, c.Request.Header, body, respBody)
+		}
 		reqLog.Debug("openai.request_completed",
 			zap.Int64("account_id", account.ID),
 			zap.Int("switch_count", switchCount),
@@ -713,7 +735,16 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		if channelMappingMsg.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMappingMsg.MappedModel)
 		}
+		shouldDebugLog := h.debugLogService != nil && h.debugLogService.ShouldRecord(c.Request.Context())
+		var respCap *responseCapture
+		if shouldDebugLog {
+			respCap = newResponseCapture(c.Writer, h.debugLogService.MaxBodyBytes())
+			c.Writer = respCap
+		}
 		result, err := h.gatewayService.ForwardAsAnthropic(c.Request.Context(), c, account, forwardBody, promptCacheKey, defaultMappedModel)
+		if respCap != nil {
+			c.Writer = respCap.ResponseWriter
+		}
 
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
 		if accountReleaseFunc != nil {
@@ -821,6 +852,15 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				).Error("openai_messages.record_usage_failed", zap.Error(err))
 			}
 		})
+		if shouldDebugLog {
+			var respBody []byte
+			if respCap != nil {
+				respBody = respCap.captured()
+			}
+			// Messages 端点对客户端是 Claude 协议，响应 SSE/JSON 都是 Anthropic 格式，
+			// 即使上游是 OpenAI，聚合也用 Anthropic aggregator。
+			enqueueDebugLog(h.debugLogService, c.Request.Context(), result.RequestID, apiKey, reqModel, reqStream, service.DebugLogProtocolAnthropic, c.Request.Header, body, respBody)
+		}
 		reqLog.Debug("openai_messages.request_completed",
 			zap.Int64("account_id", account.ID),
 			zap.Int("switch_count", switchCount),

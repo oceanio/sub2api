@@ -183,6 +183,19 @@
           <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
         </template>
 
+        <template #cell-actions="{ row }">
+          <button
+            v-if="row.request_id"
+            type="button"
+            class="inline-flex items-center justify-center rounded p-1 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:text-gray-400 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+            :title="t('admin.usage.viewDebugMessage')"
+            @click="$emit('debugLogClick', row.request_id)"
+          >
+            <Icon name="chat" size="sm" />
+          </button>
+          <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
+        </template>
+
         <template #empty><EmptyState :message="t('usage.noRecords')" /></template>
       </DataTable>
     </div>
@@ -405,6 +418,7 @@ withDefaults(defineProps<Props>(), {
 defineEmits<{
   userClick: [userID: number, email?: string]
   sort: [key: string, order: 'asc' | 'desc']
+  debugLogClick: [requestId: string]
 }>()
 const { t } = useI18n()
 

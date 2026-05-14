@@ -5,8 +5,14 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/lib/pq"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
+
+// scheduledTestClaimWindow is the duration next_run_at is pushed forward when a
+// node claims a plan, preventing other nodes from picking up the same plan while
+// the test is in flight. UpdateAfterRun will overwrite it with the real next time.
+const scheduledTestClaimWindow = 5 * time.Minute
 
 // --- Plan Repository ---
 
@@ -49,17 +55,53 @@ func (r *scheduledTestPlanRepository) ListByAccountID(ctx context.Context, accou
 }
 
 func (r *scheduledTestPlanRepository) ListDue(ctx context.Context, now time.Time) ([]*service.ScheduledTestPlan, error) {
-	rows, err := r.db.QueryContext(ctx, `
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	rows, err := tx.QueryContext(ctx, `
 		SELECT id, account_id, model_id, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at
 		FROM scheduled_test_plans
 		WHERE enabled = true AND next_run_at <= $1
 		ORDER BY next_run_at ASC
+		FOR UPDATE SKIP LOCKED
 	`, now)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	return scanPlans(rows)
+
+	plans, err := scanPlans(rows)
+	_ = rows.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(plans) == 0 {
+		return nil, tx.Commit()
+	}
+
+	// Claim the plans atomically: push next_run_at forward so other nodes skip them
+	// while this node runs the tests. UpdateAfterRun will set the real next time.
+	ids := make([]int64, len(plans))
+	for i, p := range plans {
+		ids[i] = p.ID
+	}
+	_, err = tx.ExecContext(ctx, `
+		UPDATE scheduled_test_plans SET next_run_at = $1, updated_at = NOW()
+		WHERE id = ANY($2)
+	`, now.Add(scheduledTestClaimWindow), pq.Array(ids))
+	if err != nil {
+		return nil, err
+	}
+
+	// Commit 失败时 UPDATE 被回滚，plan 实际未被 claim，其他节点会重复 pick up。
+	// 必须返回 nil 而非 plans，避免调用方误以为已经 claim 成功。
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return plans, nil
 }
 
 func (r *scheduledTestPlanRepository) Update(ctx context.Context, plan *service.ScheduledTestPlan) (*service.ScheduledTestPlan, error) {

@@ -4791,6 +4791,96 @@
           </div>
         </div>
 
+        <!-- Request Debug Log feature card -->
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.features.debugLog.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.features.debugLog.description') }}
+            </p>
+          </div>
+          <div class="space-y-5 p-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.features.debugLog.enabled') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.debugLog.enabledHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.debug_request_log_enabled" />
+            </div>
+
+            <div v-if="form.debug_request_log_enabled" class="space-y-5">
+              <div>
+                <label class="input-label">
+                  {{ t('admin.settings.features.debugLog.ttlHours') }}
+                </label>
+                <input
+                  v-model.number="form.debug_request_log_ttl_hours"
+                  type="number"
+                  min="1"
+                  max="720"
+                  step="1"
+                  class="input"
+                />
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.debugLog.ttlHoursHint') }}
+                </p>
+              </div>
+
+              <div>
+                <label class="input-label">
+                  {{ t('admin.settings.features.debugLog.sampleRate') }}
+                </label>
+                <input
+                  v-model.number="form.debug_request_log_sample_rate"
+                  type="number"
+                  min="1"
+                  max="100"
+                  step="1"
+                  class="input"
+                />
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.debugLog.sampleRateHint') }}
+                </p>
+              </div>
+
+              <div>
+                <label class="input-label">
+                  {{ t('admin.settings.features.debugLog.bodyLimit') }}
+                </label>
+                <input
+                  v-model.number="form.debug_request_log_body_limit_bytes"
+                  type="number"
+                  min="0"
+                  max="1048576"
+                  step="1"
+                  class="input"
+                />
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.debugLog.bodyLimitHint') }}
+                </p>
+              </div>
+
+              <div class="flex items-center justify-between">
+                <div>
+                  <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {{ t('admin.settings.features.debugLog.redactHeaders') }}
+                  </label>
+                  <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('admin.settings.features.debugLog.redactHeadersHint') }}
+                  </p>
+                </div>
+                <Toggle v-model="form.debug_request_log_redact_headers" @update:model-value="handleRedactHeadersChange" />
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Affiliate (邀请返利) feature card -->
         <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
@@ -6115,6 +6205,16 @@
         @confirm="handleAffiliateConfirm"
         @cancel="cancelAffiliateConfirm"
       />
+      <ConfirmDialog
+        :show="debugLogRedactConfirmShow"
+        :title="t('admin.settings.features.debugLog.redactConfirmTitle')"
+        :message="t('admin.settings.features.debugLog.redactConfirmContent')"
+        :confirm-text="t('admin.settings.features.debugLog.redactConfirmOk')"
+        :cancel-text="t('admin.settings.features.debugLog.redactConfirmCancel')"
+        danger
+        @confirm="confirmDisableRedact"
+        @cancel="cancelDisableRedact"
+      />
     </div>
   </AppLayout>
 </template>
@@ -6615,6 +6715,12 @@ const form = reactive<SettingsForm>({
   available_channels_enabled: false,
   // Affiliate (邀请返利) feature switch
   affiliate_enabled: false,
+  // Request debug log
+  debug_request_log_enabled: false,
+  debug_request_log_ttl_hours: 168,
+  debug_request_log_sample_rate: 100,
+  debug_request_log_redact_headers: true,
+  debug_request_log_body_limit_bytes: 1024,
 });
 
 const authSourceDefaults = reactive<AuthSourceDefaultsState>(
@@ -7721,6 +7827,12 @@ async function saveSettings() {
       available_channels_enabled: form.available_channels_enabled,
       // Affiliate (邀请返利) feature switch
       affiliate_enabled: form.affiliate_enabled,
+      // Request debug log
+      debug_request_log_enabled: form.debug_request_log_enabled,
+      debug_request_log_ttl_hours: clampInteger(form.debug_request_log_ttl_hours, 1, 720, 168),
+      debug_request_log_sample_rate: clampInteger(form.debug_request_log_sample_rate, 1, 100, 100),
+      debug_request_log_redact_headers: form.debug_request_log_redact_headers,
+      debug_request_log_body_limit_bytes: clampInteger(form.debug_request_log_body_limit_bytes, 0, 1048576, 1024),
     };
 
     // 仅当 openai_fast_policy_settings 已成功从后端加载时才回写，
@@ -8753,6 +8865,29 @@ async function handleAffiliateConfirm() {
 function cancelAffiliateConfirm() {
   affiliateConfirmDialog.show = false;
   affiliateConfirmDialog.pending = null;
+}
+
+const debugLogRedactConfirmShow = ref(false);
+function handleRedactHeadersChange(next: boolean) {
+  if (!next) {
+    debugLogRedactConfirmShow.value = true;
+  }
+}
+function confirmDisableRedact() {
+  debugLogRedactConfirmShow.value = false;
+}
+function cancelDisableRedact() {
+  debugLogRedactConfirmShow.value = false;
+  form.debug_request_log_redact_headers = true;
+}
+
+function clampInteger(value: unknown, min: number, max: number, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  const i = Math.trunc(n);
+  if (i < min) return min;
+  if (i > max) return max;
+  return i;
 }
 
 // debounceTimer wires a single timer slot to a callback with a delay,

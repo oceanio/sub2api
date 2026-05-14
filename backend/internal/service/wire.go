@@ -520,6 +520,7 @@ var ProviderSet = wire.NewSet(
 	ProvideChannelMonitorService,
 	ProvideChannelMonitorRunner,
 	NewChannelMonitorRequestTemplateService,
+	ProvideRequestDebugLogService,
 )
 
 // ProvidePaymentConfigService wraps NewPaymentConfigService to accept the named
@@ -558,4 +559,11 @@ func ProvideChannelMonitorRunner(svc *ChannelMonitorService, settingService *Set
 	svc.SetScheduler(r)
 	r.Start()
 	return r
+}
+
+// ProvideRequestDebugLogService creates and starts RequestDebugLogService.
+func ProvideRequestDebugLogService(repo RequestDebugLogRepository, settingService *SettingService) *RequestDebugLogService {
+	svc := NewRequestDebugLogService(repo, settingService)
+	svc.Start()
+	return svc
 }

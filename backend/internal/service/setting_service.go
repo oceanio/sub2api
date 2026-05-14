@@ -109,6 +109,28 @@ const antigravityUserAgentVersionCacheTTL = 60 * time.Second
 const antigravityUserAgentVersionErrorTTL = 5 * time.Second
 const antigravityUserAgentVersionDBTimeout = 5 * time.Second
 
+// cachedDebugLogSettings 缓存请求调试日志配置（进程内缓存，60s TTL）。
+// 调试日志在网关热路径上每请求都会读取这些配置，必须避免反复打 settings 表。
+type cachedDebugLogSettings struct {
+	enabled       bool
+	ttl           time.Duration
+	sampleRate    int
+	redactHeaders bool
+	bodyLimit     int
+	expiresAt     int64 // unix nano
+}
+
+var debugLogSettingsCache atomic.Value // *cachedDebugLogSettings
+
+const (
+	debugLogSettingsCacheTTL = 60 * time.Second
+	debugLogSettingsErrorTTL = 5 * time.Second
+
+	debugLogDefaultTTLHours   = 168 // 7 天
+	debugLogDefaultSampleRate = 100
+	debugLogDefaultBodyLimit  = 1024
+)
+
 // DefaultSubscriptionGroupReader validates group references used by default subscriptions.
 type DefaultSubscriptionGroupReader interface {
 	GetByID(ctx context.Context, id int64) (*Group, error)
@@ -1662,6 +1684,13 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyAccountQuotaNotifyEnabled] = strconv.FormatBool(settings.AccountQuotaNotifyEnabled)
 	updates[SettingKeyAccountQuotaNotifyEmails] = MarshalNotifyEmails(settings.AccountQuotaNotifyEmails)
 
+	// Request debug log
+	updates[SettingKeyDebugRequestLogEnabled] = strconv.FormatBool(settings.DebugRequestLogEnabled)
+	updates[SettingKeyDebugRequestLogTTLHours] = strconv.Itoa(settings.DebugRequestLogTTLHours)
+	updates[SettingKeyDebugRequestLogSampleRate] = strconv.Itoa(settings.DebugRequestLogSampleRate)
+	updates[SettingKeyDebugRequestLogRedactHeaders] = strconv.FormatBool(settings.DebugRequestLogRedactHeaders)
+	updates[SettingKeyDebugRequestLogBodyLimit] = strconv.Itoa(settings.DebugRequestLogBodyLimit)
+
 	return updates, nil
 }
 
@@ -1733,6 +1762,14 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	openAIAdvancedSchedulerSettingCache.Store(&cachedOpenAIAdvancedSchedulerSetting{
 		enabled:   settings.OpenAIAdvancedSchedulerEnabled,
 		expiresAt: time.Now().Add(openAIAdvancedSchedulerSettingCacheTTL).UnixNano(),
+	})
+	debugLogSettingsCache.Store(&cachedDebugLogSettings{
+		enabled:       settings.DebugRequestLogEnabled,
+		ttl:           time.Duration(settings.DebugRequestLogTTLHours) * time.Hour,
+		sampleRate:    settings.DebugRequestLogSampleRate,
+		redactHeaders: settings.DebugRequestLogRedactHeaders,
+		bodyLimit:     settings.DebugRequestLogBodyLimit,
+		expiresAt:     time.Now().Add(debugLogSettingsCacheTTL).UnixNano(),
 	})
 	if s.onUpdate != nil {
 		s.onUpdate() // Invalidate cache after settings update
@@ -2869,6 +2906,25 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	}
 	if result.AccountQuotaNotifyEmails == nil {
 		result.AccountQuotaNotifyEmails = []NotifyEmailEntry{}
+	}
+
+	// Request debug log
+	result.DebugRequestLogEnabled = settings[SettingKeyDebugRequestLogEnabled] == "true"
+	if v, err := strconv.Atoi(strings.TrimSpace(settings[SettingKeyDebugRequestLogTTLHours])); err == nil && v > 0 {
+		result.DebugRequestLogTTLHours = v
+	} else {
+		result.DebugRequestLogTTLHours = debugLogDefaultTTLHours
+	}
+	if v, err := strconv.Atoi(strings.TrimSpace(settings[SettingKeyDebugRequestLogSampleRate])); err == nil && v >= 1 && v <= 100 {
+		result.DebugRequestLogSampleRate = v
+	} else {
+		result.DebugRequestLogSampleRate = debugLogDefaultSampleRate
+	}
+	result.DebugRequestLogRedactHeaders = settings[SettingKeyDebugRequestLogRedactHeaders] != "false"
+	if v, err := strconv.Atoi(strings.TrimSpace(settings[SettingKeyDebugRequestLogBodyLimit])); err == nil && v >= 0 {
+		result.DebugRequestLogBodyLimit = v
+	} else {
+		result.DebugRequestLogBodyLimit = debugLogDefaultBodyLimit
 	}
 
 	return result
@@ -4029,4 +4085,81 @@ func (s *SettingService) SetStreamTimeoutSettings(ctx context.Context, settings 
 	}
 
 	return s.settingRepo.Set(ctx, SettingKeyStreamTimeoutSettings, string(data))
+}
+
+// loadDebugLogSettings 取（或刷新）调试日志配置缓存。一次性把 5 个 key 取齐，
+// 主链路 5 次 DB 查询折叠为 60s 一次。
+func (s *SettingService) loadDebugLogSettings(ctx context.Context) *cachedDebugLogSettings {
+	if cached, ok := debugLogSettingsCache.Load().(*cachedDebugLogSettings); ok && cached != nil {
+		if time.Now().UnixNano() < cached.expiresAt {
+			return cached
+		}
+	}
+
+	keys := []string{
+		SettingKeyDebugRequestLogEnabled,
+		SettingKeyDebugRequestLogTTLHours,
+		SettingKeyDebugRequestLogSampleRate,
+		SettingKeyDebugRequestLogRedactHeaders,
+		SettingKeyDebugRequestLogBodyLimit,
+	}
+	values, err := s.settingRepo.GetMultiple(ctx, keys)
+	if err != nil {
+		// 读失败时短 TTL 缓存"关闭"状态，避免反复打表
+		fallback := &cachedDebugLogSettings{
+			enabled:       false,
+			ttl:           debugLogDefaultTTLHours * time.Hour,
+			sampleRate:    debugLogDefaultSampleRate,
+			redactHeaders: true,
+			bodyLimit:     debugLogDefaultBodyLimit,
+			expiresAt:     time.Now().Add(debugLogSettingsErrorTTL).UnixNano(),
+		}
+		debugLogSettingsCache.Store(fallback)
+		return fallback
+	}
+
+	settings := &cachedDebugLogSettings{
+		enabled:       values[SettingKeyDebugRequestLogEnabled] == "true",
+		ttl:           debugLogDefaultTTLHours * time.Hour,
+		sampleRate:    debugLogDefaultSampleRate,
+		redactHeaders: values[SettingKeyDebugRequestLogRedactHeaders] != "false",
+		bodyLimit:     debugLogDefaultBodyLimit,
+		expiresAt:     time.Now().Add(debugLogSettingsCacheTTL).UnixNano(),
+	}
+	if v, errp := strconv.Atoi(strings.TrimSpace(values[SettingKeyDebugRequestLogTTLHours])); errp == nil && v > 0 {
+		settings.ttl = time.Duration(v) * time.Hour
+	}
+	if v, errp := strconv.Atoi(strings.TrimSpace(values[SettingKeyDebugRequestLogSampleRate])); errp == nil && v >= 1 && v <= 100 {
+		settings.sampleRate = v
+	}
+	if v, errp := strconv.Atoi(strings.TrimSpace(values[SettingKeyDebugRequestLogBodyLimit])); errp == nil && v >= 0 {
+		settings.bodyLimit = v
+	}
+	debugLogSettingsCache.Store(settings)
+	return settings
+}
+
+// IsDebugRequestLogEnabled 检查是否启用请求调试日志
+func (s *SettingService) IsDebugRequestLogEnabled(ctx context.Context) bool {
+	return s.loadDebugLogSettings(ctx).enabled
+}
+
+// GetDebugRequestLogTTL 返回调试日志保留时长（默认 168h = 7天）
+func (s *SettingService) GetDebugRequestLogTTL(ctx context.Context) time.Duration {
+	return s.loadDebugLogSettings(ctx).ttl
+}
+
+// GetDebugRequestLogSampleRate 返回采样率 1-100（默认 100）
+func (s *SettingService) GetDebugRequestLogSampleRate(ctx context.Context) int {
+	return s.loadDebugLogSettings(ctx).sampleRate
+}
+
+// IsDebugRequestLogRedactHeaders 返回是否脱敏请求头（默认 true）
+func (s *SettingService) IsDebugRequestLogRedactHeaders(ctx context.Context) bool {
+	return s.loadDebugLogSettings(ctx).redactHeaders
+}
+
+// GetDebugRequestLogBodyLimit 返回 body 截断字节数（0=不截断，默认 1024）
+func (s *SettingService) GetDebugRequestLogBodyLimit(ctx context.Context) int {
+	return s.loadDebugLogSettings(ctx).bodyLimit
 }
