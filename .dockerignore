@@ -25,6 +25,13 @@ Thumbs.db
 # Build artifacts
 dist/
 build/
+frontend/dist/
+frontend/.vite/
+frontend/.cache/
+backend/internal/web/dist/
+backend/bin/
+backend/sub2api
+**/*.tsbuildinfo
 
 # Node modules (will be installed in container)
 frontend/node_modules/
@@ -38,6 +45,8 @@ backend/vendor/
 **/*.test.js
 coverage/
 .nyc_output/
+frontend/playwright-report/
+frontend/test-results/
 
 # Environment files
 .env
@@ -73,5 +82,8 @@ deploy/redis_data/
 
 # Claude files
 .claude/
+.omc/
 issues/
+progress.txt
+spec.md
 CLAUDE.md

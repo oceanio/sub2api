@@ -137,3 +137,6 @@ frontend/coverage/
 aicodex
 output/
 .omc/
+
+# Project planning notes (not tracked)
+spec.md
