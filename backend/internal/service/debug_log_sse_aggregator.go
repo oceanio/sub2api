@@ -3,9 +3,11 @@ package service
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
 	"errors"
 	"strings"
+
+	// sonic 用于加速 SSE 事件 JSON 解析，drop-in 替代 encoding/json。
+	json "github.com/bytedance/sonic"
 )
 
 // DebugLogProtocol identifies the upstream protocol of a captured response,

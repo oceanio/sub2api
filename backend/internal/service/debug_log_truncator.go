@@ -1,11 +1,15 @@
 package service
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	// sonic 是 bytedance JIT 加速的 JSON 库，drop-in 替代 encoding/json。
+	// 仅在 debug-log 路径使用，主链路（usage 解析等）仍用 encoding/json。
+	// debug-log 对 JSON 没有强语义要求（本来就允许有损截断），适合放宽。
+	json "github.com/bytedance/sonic"
 )
 
 // 字段级截断默认阈值。所有阈值都按 UTF-8 字节算。
