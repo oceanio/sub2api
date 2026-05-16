@@ -58,10 +58,10 @@ func TestSmartTruncate_AnthropicRequest_LongText(t *testing.T) {
 }
 
 func TestSmartTruncate_BelowThreshold_NotCut(t *testing.T) {
-	// 1KB 边界以下不应被截
+	// 文本字段限值 debugLogFieldTextLimit=256，<= 256 不应被截。
 	body, _ := json.Marshal(map[string]any{
 		"messages": []any{
-			map[string]any{"role": "user", "content": strings.Repeat("x", 1024)},
+			map[string]any{"role": "user", "content": strings.Repeat("x", debugLogFieldTextLimit)},
 		},
 	})
 	info := &TruncationInfo{}
