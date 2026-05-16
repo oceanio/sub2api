@@ -5283,8 +5283,9 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 
 	// 记录上游响应头，便于诊断压缩/协议问题。
 	// Content-Encoding 在 decompressResponseBody 后通常已被删除；若仍存在说明解压未触发。
+	// 流式请求高频路径，降级到 Debug 级别避免污染生产日志。
 	logger.LegacyPrintf("service.gateway",
-		"[Stream] Upstream response headers: Account=%d(%s) RequestID=%s Status=%d ContentType=%q ContentEncoding=%q",
+		"[Debug][Stream] Upstream response headers: Account=%d(%s) RequestID=%s Status=%d ContentType=%q ContentEncoding=%q",
 		account.ID, account.Name, resp.Header.Get("x-request-id"), resp.StatusCode,
 		resp.Header.Get("Content-Type"), resp.Header.Get("Content-Encoding"),
 	)
