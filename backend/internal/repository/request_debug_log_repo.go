@@ -178,11 +178,15 @@ func (r *requestDebugLogRepository) GetByRequestID(ctx context.Context, requestI
 }
 
 func (r *requestDebugLogRepository) DeleteExpired(ctx context.Context, now time.Time, batchSize int) (int64, error) {
+	// 子查询加 ORDER BY id 走 PK 顺序扫描：最旧的过期记录先删，
+	// 配合 idx_request_debug_logs_expires_at 让规划器选 index scan，
+	// 避免随机 IO；同时保证多次调用之间删除顺序稳定。
 	res, err := r.db.ExecContext(ctx, `
 		DELETE FROM request_debug_logs
 		WHERE id IN (
 			SELECT id FROM request_debug_logs
 			WHERE expires_at < $1
+			ORDER BY id
 			LIMIT $2
 		)
 	`, now, batchSize)
