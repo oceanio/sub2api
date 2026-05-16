@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -60,6 +61,9 @@ const (
 	// 超过水位时 ShouldRecord 直接拒绝新采样，避免主路径继续投入工作量。
 	debugLogQueueHighWatermarkNum = 8
 	debugLogQueueHighWatermarkDen = 10
+	// debugLogQueueMaxBytes 队列累计字节硬上限：1000 槽 × 2MB 最坏 = 2GB，
+	// 实测平均值小很多但缺少兜底。256MB 封死最坏情况，超过即丢弃 + 告警。
+	debugLogQueueMaxBytes = 256 * 1024 * 1024
 )
 
 // estimateSize 估算单条 RequestDebugLog 序列化后的字节数，用于 batch 字节配额。
@@ -81,8 +85,11 @@ type RequestDebugLogService struct {
 	queue          chan *RequestDebugLog
 	// buildSem 限制并发跑 BuildEntry 的 goroutine 数，避免突发流量打爆 CPU/GC
 	buildSem chan struct{}
-	wg       sync.WaitGroup
-	stopCh   chan struct{}
+	// queueBytes 队列中所有待写入条目累计字节数（粗略估算）。
+	// Enqueue 时 Add；worker 取出时 Sub。配合 debugLogQueueMaxBytes 封顶。
+	queueBytes atomic.Int64
+	wg         sync.WaitGroup
+	stopCh     chan struct{}
 }
 
 func NewRequestDebugLogService(
@@ -131,13 +138,23 @@ func (s *RequestDebugLogService) ReleaseBuildSlot() {
 	<-s.buildSem
 }
 
-// Enqueue 投入队列；队列满则丢弃，不阻塞主流程
+// Enqueue 投入队列；队列槽位或字节配额满则丢弃，不阻塞主流程。
+// F2 反压：除了 channel 长度限制（debugLogQueueSize 条），再加字节配额
+// （debugLogQueueMaxBytes 字节），封死最坏内存占用。
 func (s *RequestDebugLogService) Enqueue(log *RequestDebugLog) {
 	if log == nil {
 		return
 	}
+	size := int64(log.estimateSize())
+	if s.queueBytes.Load()+size > debugLogQueueMaxBytes {
+		slog.Warn("debug_log_queue_bytes_full_dropped",
+			"request_id", log.RequestID, "size", size,
+			"queue_bytes", s.queueBytes.Load())
+		return
+	}
 	select {
 	case s.queue <- log:
+		s.queueBytes.Add(size)
 	default:
 		slog.Warn("debug_log_queue_full_dropped", "request_id", log.RequestID)
 	}
@@ -333,8 +350,10 @@ func (s *RequestDebugLogService) worker() {
 				flush()
 				return
 			}
+			size := log.estimateSize()
+			s.queueBytes.Add(-int64(size))
 			batch = append(batch, log)
-			batchBytes += log.estimateSize()
+			batchBytes += size
 			// 条数或字节任一达到上限即 flush，避免 50×1MB=50MB 巨型事务
 			if len(batch) >= debugLogBatchSize || batchBytes >= debugLogBatchBytes {
 				flush()
@@ -347,8 +366,10 @@ func (s *RequestDebugLogService) worker() {
 			for {
 				select {
 				case log := <-s.queue:
+					size := log.estimateSize()
+					s.queueBytes.Add(-int64(size))
 					batch = append(batch, log)
-					batchBytes += log.estimateSize()
+					batchBytes += size
 					if batchBytes >= debugLogBatchBytes {
 						flush()
 					}
