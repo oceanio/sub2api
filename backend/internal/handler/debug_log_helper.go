@@ -106,13 +106,23 @@ func enqueueDebugLog(
 		}
 	}
 
+	// 在主线程克隆 header，避免 gin 复用 Context / net/http 复用 conn 时
+	// 在 goroutine 内访问到被重置的 header map。
+	var hdrClone, respHdrClone http.Header
+	if headers != nil {
+		hdrClone = headers.Clone()
+	}
+	if respHeaders != nil {
+		respHdrClone = respHeaders.Clone()
+	}
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("debug_log_enqueue_panic", "request_id", requestID, "recover", r)
 			}
 		}()
-		entry := svc.BuildEntry(context.Background(), requestID, userID, apiKeyID, groupID, model, stream, protocol, headers.Clone(), reqBody, respHeaders.Clone(), respBody, "")
+		entry := svc.BuildEntry(context.Background(), requestID, userID, apiKeyID, groupID, model, stream, protocol, hdrClone, reqBody, respHdrClone, respBody, "")
 		svc.Enqueue(entry)
 	}()
 }
