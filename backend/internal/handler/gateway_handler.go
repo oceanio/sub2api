@@ -441,9 +441,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
-			shouldDebugLog := h.debugLogService != nil && h.debugLogService.ShouldRecord(c.Request.Context())
+			debugLog := shouldDebugLog(h.debugLogService, c.Request.Context())
 			var respCap *responseCapture
-			if shouldDebugLog {
+			if debugLog {
 				respCap = newResponseCapture(c.Writer, h.debugLogService.MaxBodyBytes())
 				c.Writer = respCap
 			}
@@ -547,7 +547,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					).Error("gateway.record_usage_failed", zap.Error(err))
 				}
 			})
-			if shouldDebugLog {
+			if debugLog {
 				var respBody []byte
 				if respCap != nil {
 					respBody = respCap.captured()
@@ -773,9 +773,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
-			shouldDebugLog := h.debugLogService != nil && h.debugLogService.ShouldRecord(c.Request.Context())
+			debugLog := shouldDebugLog(h.debugLogService, c.Request.Context())
 			var respCap *responseCapture
-			if shouldDebugLog {
+			if debugLog {
 				respCap = newResponseCapture(c.Writer, h.debugLogService.MaxBodyBytes())
 				c.Writer = respCap
 			}
@@ -951,7 +951,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					).Error("gateway.record_usage_failed", zap.Error(err))
 				}
 			})
-			if shouldDebugLog {
+			if debugLog {
 				var respBody []byte
 				if respCap != nil {
 					respBody = respCap.captured()

@@ -21,18 +21,20 @@ func NewRequestDebugLogHandler(debugLogRepo service.RequestDebugLogRepository) *
 
 // DebugLogResponse GET /api/v1/admin/usage/:request_id/debug-log 的响应结构
 type DebugLogResponse struct {
-	Found          bool               `json:"found"`
-	RequestID      string             `json:"request_id,omitempty"`
-	Model          string             `json:"model,omitempty"`
-	Stream         bool               `json:"stream,omitempty"`
-	RequestHeaders map[string]any     `json:"request_headers,omitempty"`
-	RequestBody    any                `json:"request_body,omitempty"`
-	ResponseBody   any                `json:"response_body,omitempty"`
-	ResponseText   string             `json:"response_text,omitempty"`
-	Truncated      bool               `json:"truncated,omitempty"`
-	BodyBytes      int                `json:"body_bytes,omitempty"`
-	CreatedAt      *time.Time         `json:"created_at,omitempty"`
-	ExpiresAt      *time.Time         `json:"expires_at,omitempty"`
+	Found          bool            `json:"found"`
+	RequestID      string          `json:"request_id,omitempty"`
+	Model          string          `json:"model,omitempty"`
+	Stream         bool            `json:"stream,omitempty"`
+	RequestHeaders map[string]any  `json:"request_headers,omitempty"`
+	RequestBody    any             `json:"request_body,omitempty"`
+	RequestText    string          `json:"request_text,omitempty"`
+	ResponseBody   any             `json:"response_body,omitempty"`
+	ResponseText   string          `json:"response_text,omitempty"`
+	Truncated      bool            `json:"truncated,omitempty"`
+	TruncationInfo json.RawMessage `json:"truncation_info,omitempty"`
+	BodyBytes      int             `json:"body_bytes,omitempty"`
+	CreatedAt      *time.Time      `json:"created_at,omitempty"`
+	ExpiresAt      *time.Time      `json:"expires_at,omitempty"`
 }
 
 // GetByRequestID GET /api/v1/admin/usage/:request_id/debug-log
@@ -55,15 +57,17 @@ func (h *RequestDebugLogHandler) GetByRequestID(c *gin.Context) {
 	}
 
 	resp := DebugLogResponse{
-		Found:      true,
-		RequestID:  log.RequestID,
-		Model:      log.Model,
-		Stream:     log.Stream,
-		Truncated:  log.Truncated,
-		BodyBytes:  log.BodyBytes,
-		CreatedAt:  &log.CreatedAt,
-		ExpiresAt:  &log.ExpiresAt,
-		ResponseText: log.ResponseText,
+		Found:          true,
+		RequestID:      log.RequestID,
+		Model:          log.Model,
+		Stream:         log.Stream,
+		Truncated:      log.Truncated,
+		BodyBytes:      log.BodyBytes,
+		CreatedAt:      &log.CreatedAt,
+		ExpiresAt:      &log.ExpiresAt,
+		RequestText:    log.RequestText,
+		ResponseText:   log.ResponseText,
+		TruncationInfo: log.TruncationInfo,
 	}
 
 	if log.RequestHeaders != nil {

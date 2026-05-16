@@ -223,6 +223,13 @@ type SystemSettings struct {
 
 	// OpenAI fast/flex policy
 	OpenAIFastPolicySettings *OpenAIFastPolicySettings `json:"openai_fast_policy_settings,omitempty"`
+
+	// Request Debug Log
+	DebugRequestLogEnabled       bool `json:"debug_request_log_enabled"`
+	DebugRequestLogTTLHours      int  `json:"debug_request_log_ttl_hours"`
+	DebugRequestLogSampleRate    int  `json:"debug_request_log_sample_rate"`
+	DebugRequestLogRedactHeaders bool `json:"debug_request_log_redact_headers"`
+	DebugRequestLogBodyLimit     int  `json:"debug_request_log_body_limit_bytes"`
 }
 
 type DefaultSubscriptionSetting struct {

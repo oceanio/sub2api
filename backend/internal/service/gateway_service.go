@@ -5281,6 +5281,14 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 		s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
 	}
 
+	// 记录上游响应头，便于诊断压缩/协议问题。
+	// Content-Encoding 在 decompressResponseBody 后通常已被删除；若仍存在说明解压未触发。
+	logger.LegacyPrintf("service.gateway",
+		"[Stream] Upstream response headers: Account=%d(%s) RequestID=%s Status=%d ContentType=%q ContentEncoding=%q",
+		account.ID, account.Name, resp.Header.Get("x-request-id"), resp.StatusCode,
+		resp.Header.Get("Content-Type"), resp.Header.Get("Content-Encoding"),
+	)
+
 	writeAnthropicPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 
 	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
@@ -5309,6 +5317,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	var firstTokenMs *int
 	clientDisconnected := false
 	sawTerminalEvent := false
+	var linesReceived int
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -5378,7 +5387,17 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 							return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, fmt.Errorf("stream usage incomplete after timeout")
 						}
 					}
-					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, fmt.Errorf("stream usage incomplete: missing terminal event")
+					logger.LegacyPrintf("service.gateway",
+						"[Anthropic passthrough] Missing terminal event: Account=%d(%s) lines_received=%d client_disconnected=%v",
+						account.ID, account.Name, linesReceived, clientDisconnected)
+					if linesReceived == 0 && !clientDisconnected {
+						// 上游没发任何内容就断链 → 客户端还没收到数据，可以 failover
+						return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, &UpstreamFailoverError{
+							StatusCode: http.StatusBadGateway,
+						}
+					}
+					// 上游已发送部分内容后断链 → 直接断链，billing 正常计费
+					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, nil
 				}
 				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, nil
 			}
@@ -5400,6 +5419,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			}
 
 			line := ev.line
+			linesReceived++
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
 				trimmed := strings.TrimSpace(data)
 				if anthropicStreamEventIsTerminal("", trimmed) {
@@ -6646,6 +6666,10 @@ func truncateForLog(b []byte, maxBytes int) string {
 	// 保持一行，避免污染日志格式
 	s = strings.ReplaceAll(s, "\n", "\\n")
 	s = strings.ReplaceAll(s, "\r", "\\r")
+	// 兜底：上游若返回未识别的压缩格式或二进制错误体，原始字节可能进入
+	// fmt.Errorf 的 message，最终被 ops_error_logger 写入 PG UTF8 列触发编码错误。
+	// 这里统一替换无效 UTF-8 序列为 U+FFFD。
+	s = strings.ToValidUTF8(s, "�")
 	return s
 }
 
@@ -7280,6 +7304,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 	needModelReplace := originalModel != mappedModel
 	clientDisconnected := false // 客户端断开标志，断开后继续读取上游以获取完整usage
 	sawTerminalEvent := false
+	var linesReceived int
 
 	pendingEventLines := make([]string, 0, 4)
 
@@ -7414,7 +7439,17 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 			if !ok {
 				// 上游完成，返回结果
 				if !sawTerminalEvent {
-					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, fmt.Errorf("stream usage incomplete: missing terminal event")
+					logger.LegacyPrintf("service.gateway",
+						"[Stream] Missing terminal event: Account=%d(%s) lines_received=%d client_disconnected=%v ContentType=%q",
+						account.ID, account.Name, linesReceived, clientDisconnected, resp.Header.Get("Content-Type"))
+					if linesReceived == 0 && !clientDisconnected {
+						// 上游没发任何内容就断链 → 客户端还没收到数据，可以 failover
+						return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, &UpstreamFailoverError{
+							StatusCode: http.StatusBadGateway,
+						}
+					}
+					// 上游已发送部分内容后断链 → 直接断链，billing 正常计费
+					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, nil
 				}
 				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, nil
 			}
@@ -7462,6 +7497,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream read error: %w", ev.err)
 			}
 			line := ev.line
+			linesReceived++
 			trimmed := strings.TrimSpace(line)
 
 			if trimmed == "" {
@@ -7786,7 +7822,27 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 		Usage ClaudeUsage `json:"usage"`
 	}
 	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
+		// 上游返回 200 但响应体不是合法 JSON（如中间代理注入了非 JSON 内容），触发 failover。
+		logger.LegacyPrintf("service.gateway",
+			"[Forward] Non-JSON 200 response (failover): Account=%d(%s) RequestID=%s ContentType=%s ContentEncoding=%s Body=%s",
+			account.ID, account.Name, resp.Header.Get("x-request-id"),
+			resp.Header.Get("Content-Type"), resp.Header.Get("Content-Encoding"),
+			truncateString(string(body), 500))
+		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			Platform:           account.Platform,
+			AccountID:          account.ID,
+			AccountName:        account.Name,
+			UpstreamStatusCode: resp.StatusCode,
+			UpstreamRequestID:  resp.Header.Get("x-request-id"),
+			Kind:               "non_json_200",
+			Message:            fmt.Sprintf("parse response: %v", err),
+			Detail:             truncateString(string(body), 200),
+		})
+		s.handleFailoverSideEffects(ctx, resp, account)
+		return nil, &UpstreamFailoverError{
+			StatusCode:   http.StatusBadGateway,
+			ResponseBody: body,
+		}
 	}
 
 	// 解析嵌套的 cache_creation 对象中的 5m/1h 明细
@@ -8829,9 +8885,13 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		return s.forwardCountTokensAnthropicAPIKeyPassthrough(ctx, c, account, passthroughBody, parsed)
 	}
 
-	// Bedrock 不支持 count_tokens 端点
+	// Bedrock 不支持 count_tokens 端点：直接回退到本地 token 估算。
 	if account != nil && account.IsBedrock() {
-		s.countTokensError(c, http.StatusNotFound, "not_found_error", "count_tokens endpoint is not supported for Bedrock")
+		inputTokens := estimateInputTokens(parsed)
+		logger.LegacyPrintf("service.gateway",
+			"[count_tokens] Bedrock does not support count_tokens, falling back to local estimation: %d tokens (account=%d name=%s)",
+			inputTokens, account.ID, account.Name)
+		c.JSON(http.StatusOK, gin.H{"input_tokens": inputTokens})
 		return nil
 	}
 
@@ -8856,10 +8916,13 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		}
 	}
 
-	// Antigravity 账户不支持 count_tokens，返回 404 让客户端 fallback 到本地估算。
-	// 返回 nil 避免 handler 层记录为错误，也不设置 ops 上游错误上下文。
+	// Antigravity 账户不支持 count_tokens：直接回退到本地 token 估算。
 	if account.Platform == PlatformAntigravity {
-		s.countTokensError(c, http.StatusNotFound, "not_found_error", "count_tokens endpoint is not supported for this platform")
+		inputTokens := estimateInputTokens(parsed)
+		logger.LegacyPrintf("service.gateway",
+			"[count_tokens] Antigravity does not support count_tokens, falling back to local estimation: %d tokens (account=%d name=%s)",
+			inputTokens, account.ID, account.Name)
+		c.JSON(http.StatusOK, gin.H{"input_tokens": inputTokens})
 		return nil
 	}
 
@@ -8955,26 +9018,14 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	}
 
 	// 处理错误响应
+	// count_tokens 是客户端预估 token 的轻量探测，任何上游错误都不应影响账号状态：
+	// - 不调用 HandleUpstreamError，避免触发限流/封禁/自定义错误码逻辑
+	// - 一律回退到本地 tiktoken 估算，返回 200，避免阻塞客户端工作流
 	if resp.StatusCode >= 400 {
-		// 标记账号状态（429/529等）
-		s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
-
-		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
-		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
-		upstreamDetail := ""
-		if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
-			maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
-			if maxBytes <= 0 {
-				maxBytes = 2048
-			}
-			upstreamDetail = truncateString(string(respBody), maxBytes)
-		}
-		setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
-
-		// 记录上游错误摘要便于排障（不回显请求内容）
+		upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
 		if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
 			logger.LegacyPrintf("service.gateway",
-				"count_tokens upstream error %d (account=%d platform=%s type=%s): %s",
+				"count_tokens upstream error %d (account=%d platform=%s type=%s) [isolated, account state unchanged]: %s",
 				resp.StatusCode,
 				account.ID,
 				account.Platform,
@@ -8982,33 +9033,10 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 				truncateForLog(respBody, s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes),
 			)
 		}
-
-		// 4xx 鉴权/限流/请求体异常透传给客户端（上游明确告知问题）；
-		// 其余错误（含 5xx / 5xx 临时故障）回退到本地 token 估算，避免中断工作流。
-		switch resp.StatusCode {
-		case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests:
-			errMsg := "Upstream request failed"
-			switch resp.StatusCode {
-			case http.StatusBadRequest:
-				errMsg = "Invalid request"
-			case http.StatusUnauthorized:
-				errMsg = "Authentication failed"
-			case http.StatusForbidden:
-				errMsg = "Forbidden"
-			case http.StatusTooManyRequests:
-				errMsg = "Rate limit exceeded"
-			}
-			s.countTokensError(c, resp.StatusCode, "upstream_error", errMsg)
-			if upstreamMsg == "" {
-				return fmt.Errorf("upstream error: %d", resp.StatusCode)
-			}
-			return fmt.Errorf("upstream error: %d message=%s", resp.StatusCode, upstreamMsg)
-		}
-
 		inputTokens := estimateInputTokens(parsed)
 		logger.LegacyPrintf("service.gateway",
-			"count_tokens upstream error %d, falling back to local estimation: %d tokens (account=%d)",
-			resp.StatusCode, inputTokens, account.ID)
+			"[count_tokens] upstream error %d, falling back to local estimation: %d tokens (account=%d name=%s msg=%s)",
+			resp.StatusCode, inputTokens, account.ID, account.Name, truncateString(upstreamMsg, 256))
 		c.JSON(http.StatusOK, gin.H{"input_tokens": inputTokens})
 		return nil
 	}
@@ -9069,72 +9097,24 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 		return err
 	}
 
+	// count_tokens 是客户端预估 token 的轻量探测，任何上游错误都不应影响账号状态：
+	// - 不调用 HandleUpstreamError，避免触发限流/封禁/自定义错误码逻辑
+	// - 一律回退到本地 tiktoken 估算，返回 200，避免阻塞客户端工作流
 	if resp.StatusCode >= 400 {
-		if s.rateLimitService != nil {
-			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
-		}
-
-		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
-		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
-
-		// 中转站不支持 count_tokens 端点时（404），返回 404 让客户端 fallback 到本地估算。
-		// 仅在错误消息明确指向 count_tokens endpoint 不存在时生效，避免误吞其他 404（如错误 base_url）。
-		// 返回 nil 避免 handler 层记录为错误，也不设置 ops 上游错误上下文。
-		if isCountTokensUnsupported404(resp.StatusCode, respBody) {
-			logger.LegacyPrintf("service.gateway",
-				"[count_tokens] Upstream does not support count_tokens (404), returning 404: account=%d name=%s msg=%s",
-				account.ID, account.Name, truncateString(upstreamMsg, 512))
-			s.countTokensError(c, http.StatusNotFound, "not_found_error", "count_tokens endpoint is not supported by upstream")
-			return nil
-		}
-
-		upstreamDetail := ""
+		upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
 		if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
-			maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
-			if maxBytes <= 0 {
-				maxBytes = 2048
-			}
-			upstreamDetail = truncateString(string(respBody), maxBytes)
+			logger.LegacyPrintf("service.gateway",
+				"count_tokens passthrough upstream error %d (account=%d platform=%s) [isolated, account state unchanged]: %s",
+				resp.StatusCode,
+				account.ID,
+				account.Platform,
+				truncateForLog(respBody, s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes),
+			)
 		}
-		setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
-		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-			Platform:           account.Platform,
-			AccountID:          account.ID,
-			AccountName:        account.Name,
-			UpstreamStatusCode: resp.StatusCode,
-			UpstreamRequestID:  resp.Header.Get("x-request-id"),
-			UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
-			Passthrough:        true,
-			Kind:               "http_error",
-			Message:            upstreamMsg,
-			Detail:             upstreamDetail,
-		})
-
-		// 4xx 鉴权/限流/请求体异常透传给客户端，其余错误回退本地估算。
-		switch resp.StatusCode {
-		case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests:
-			errMsg := "Upstream request failed"
-			switch resp.StatusCode {
-			case http.StatusBadRequest:
-				errMsg = "Invalid request"
-			case http.StatusUnauthorized:
-				errMsg = "Authentication failed"
-			case http.StatusForbidden:
-				errMsg = "Forbidden"
-			case http.StatusTooManyRequests:
-				errMsg = "Rate limit exceeded"
-			}
-			s.countTokensError(c, resp.StatusCode, "upstream_error", errMsg)
-			if upstreamMsg == "" {
-				return fmt.Errorf("upstream error: %d", resp.StatusCode)
-			}
-			return fmt.Errorf("upstream error: %d message=%s", resp.StatusCode, upstreamMsg)
-		}
-
 		inputTokens := estimateInputTokens(parsed)
 		logger.LegacyPrintf("service.gateway",
-			"count_tokens passthrough upstream error %d, falling back to local estimation: %d tokens (account=%d)",
-			resp.StatusCode, inputTokens, account.ID)
+			"[count_tokens] passthrough upstream error %d, falling back to local estimation: %d tokens (account=%d name=%s msg=%s)",
+			resp.StatusCode, inputTokens, account.ID, account.Name, truncateString(upstreamMsg, 256))
 		c.JSON(http.StatusOK, gin.H{"input_tokens": inputTokens})
 		return nil
 	}

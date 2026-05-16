@@ -59,6 +59,57 @@
         </dl>
       </div>
 
+      <!-- Truncation details -->
+      <details
+        v-if="hasTruncationInfo"
+        class="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900/40 dark:bg-amber-900/20"
+      >
+        <summary class="cursor-pointer text-xs font-semibold uppercase tracking-wider text-amber-800 dark:text-amber-300">
+          {{ t('admin.usage.debugLogModal.truncationTitle') }}
+          <span class="ml-2 font-normal normal-case text-amber-700 dark:text-amber-200">
+            {{ t('admin.usage.debugLogModal.truncationSummary', {
+              fields: totalFieldCuts,
+              images: data.truncation_info?.images_stripped ?? 0,
+              tools: data.truncation_info?.tools_simplified ?? 0
+            }) }}
+          </span>
+        </summary>
+        <div class="mt-3 space-y-3 text-xs text-amber-900 dark:text-amber-100">
+          <p v-if="data.truncation_info?.aggregation_failed">
+            ⚠ {{ t('admin.usage.debugLogModal.truncationAggregationFailed') }}
+          </p>
+          <p v-if="data.truncation_info?.smart_failed">
+            ⚠ {{ t('admin.usage.debugLogModal.truncationSmartFailed') }}
+          </p>
+          <p v-if="data.truncation_info?.overall_cut_bytes && data.truncation_info.overall_cut_bytes > 0">
+            ⚠ {{ t('admin.usage.debugLogModal.truncationOverallCut', { bytes: formatBytes(data.truncation_info.overall_cut_bytes) }) }}
+          </p>
+          <p v-if="data.truncation_info?.tools_simplified && data.truncation_info.tools_simplified > 0">
+            🔧 {{ t('admin.usage.debugLogModal.truncationToolsSimplified', {
+              count: data.truncation_info.tools_simplified,
+              bytes: formatBytes(data.truncation_info.tools_bytes_saved ?? 0)
+            }) }}
+          </p>
+          <p v-if="data.truncation_info?.tool_results_elided && data.truncation_info.tool_results_elided > 0">
+            🗂 {{ t('admin.usage.debugLogModal.truncationToolResultsElided', { count: data.truncation_info.tool_results_elided }) }}
+          </p>
+          <p v-if="data.truncation_info?.signatures_stripped && data.truncation_info.signatures_stripped > 0">
+            🔏 {{ t('admin.usage.debugLogModal.truncationSignaturesStripped', { count: data.truncation_info.signatures_stripped }) }}
+          </p>
+          <p v-if="data.truncation_info?.cache_control_stripped && data.truncation_info.cache_control_stripped > 0">
+            🧹 {{ t('admin.usage.debugLogModal.truncationCacheControlStripped', { count: data.truncation_info.cache_control_stripped }) }}
+          </p>
+          <div v-if="data.truncation_info?.request && data.truncation_info.request.length > 0">
+            <div class="mb-1 font-semibold">{{ t('admin.usage.debugLogModal.truncationFieldRequest') }}</div>
+            <TruncationTable :rows="data.truncation_info.request" />
+          </div>
+          <div v-if="data.truncation_info?.response && data.truncation_info.response.length > 0">
+            <div class="mb-1 font-semibold">{{ t('admin.usage.debugLogModal.truncationFieldResponse') }}</div>
+            <TruncationTable :rows="data.truncation_info.response" />
+          </div>
+        </div>
+      </details>
+
       <!-- Tabs -->
       <div class="border-b border-gray-200 dark:border-dark-700">
         <nav class="-mb-px flex gap-4">
@@ -81,7 +132,10 @@
 
       <!-- Tab content -->
       <div v-show="activeTab === 'request'">
-        <div class="mb-2 flex justify-end">
+        <div class="mb-2 flex justify-end gap-2">
+          <span v-if="data.request_text && !data.request_body" class="text-xs italic text-gray-500 dark:text-gray-400">
+            {{ t('admin.usage.debugLogModal.rawText') }}
+          </span>
           <button
             type="button"
             class="text-xs text-primary-600 hover:underline dark:text-primary-400"
@@ -147,6 +201,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
+import TruncationTable from '@/components/admin/usage/TruncationTable.vue'
 import { adminUsageAPI, type DebugLogResponse } from '@/api/admin/usage'
 import { formatBytes, formatDateTime } from '@/utils/format'
 import { useClipboard } from '@/composables/useClipboard'
@@ -186,12 +241,14 @@ function formatTime(value: string | undefined | null): string {
 
 const formattedRequest = computed(() => {
   const body = data.value?.request_body
-  if (body == null) return ''
-  try {
-    return JSON.stringify(body, null, 2)
-  } catch {
-    return String(body)
+  if (body != null) {
+    try {
+      return JSON.stringify(body, null, 2)
+    } catch {
+      return String(body)
+    }
   }
+  return data.value?.request_text || ''
 })
 
 const formattedResponse = computed(() => {
@@ -213,6 +270,30 @@ const headerEntries = computed<Array<[string, string]>>(() => {
   const h = data.value?.request_headers
   if (!h) return []
   return Object.entries(h).map(([k, v]) => [k, String(v)])
+})
+
+const hasTruncationInfo = computed(() => {
+  const info = data.value?.truncation_info
+  if (!info) return false
+  return (
+    (info.request && info.request.length > 0) ||
+    (info.response && info.response.length > 0) ||
+    !!info.images_stripped ||
+    !!info.tool_results_cut ||
+    !!info.tools_simplified ||
+    !!info.tool_results_elided ||
+    !!info.signatures_stripped ||
+    !!info.cache_control_stripped ||
+    !!info.overall_cut_bytes ||
+    !!info.aggregation_failed ||
+    !!info.smart_failed
+  )
+})
+
+const totalFieldCuts = computed(() => {
+  const info = data.value?.truncation_info
+  if (!info) return 0
+  return (info.request?.length ?? 0) + (info.response?.length ?? 0)
 })
 
 async function load(requestId: string) {

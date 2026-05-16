@@ -14,21 +14,23 @@ import (
 
 // RequestDebugLog 单条调试日志记录
 type RequestDebugLog struct {
-	ID             int64
-	RequestID      string
-	UserID         *int64
-	APIKeyID       *int64
-	GroupID        *int64
-	Model          string
-	Stream         bool
-	RequestHeaders json.RawMessage
-	RequestBody    json.RawMessage
-	ResponseBody   json.RawMessage
-	ResponseText   string
-	Truncated      bool
-	BodyBytes      int
-	CreatedAt      time.Time
-	ExpiresAt      time.Time
+	ID              int64
+	RequestID       string
+	UserID          *int64
+	APIKeyID        *int64
+	GroupID         *int64
+	Model           string
+	Stream          bool
+	RequestHeaders  json.RawMessage
+	RequestBody     json.RawMessage
+	RequestText     string          // 字段级截断不可行时的请求兜底文本
+	ResponseBody    json.RawMessage
+	ResponseText    string
+	Truncated       bool
+	TruncationInfo  json.RawMessage // 结构化截断元信息(被截字段、字节数、剥离的图片数等)
+	BodyBytes       int
+	CreatedAt       time.Time
+	ExpiresAt       time.Time
 }
 
 // RequestDebugLogRepository 持久化接口
@@ -43,7 +45,7 @@ const (
 	debugLogQueueSize     = 1000
 	debugLogBatchSize     = 50
 	debugLogFlushInterval = 2 * time.Second
-	debugLogMaxBodyBytes  = 128 * 1024 // 128 KB 硬上限
+	debugLogMaxBodyBytes  = 1024 * 1024 // 1 MB 硬上限(Anthropic 已支持 1M context)
 	debugLogCleanupEvery  = time.Hour
 	debugLogCleanupBatch  = 500
 )
@@ -113,7 +115,6 @@ func (s *RequestDebugLogService) BuildEntry(
 	responseText string,
 ) *RequestDebugLog {
 	redact := s.settingService.IsDebugRequestLogRedactHeaders(ctx)
-	bodyLimit := s.settingService.GetDebugRequestLogBodyLimit(ctx)
 	ttl := s.settingService.GetDebugRequestLogTTL(ctx)
 	now := time.Now()
 
@@ -136,42 +137,95 @@ func (s *RequestDebugLogService) BuildEntry(
 		}
 	}
 
-	// 请求体（Anthropic/OpenAI 协议要求 JSON；非 JSON 视为脏数据跳过）
 	originalLen := len(requestBody) + len(responseBody)
 	entry.BodyBytes = originalLen
 
-	reqBody, reqTrunc := TruncateBody(requestBody, bodyLimit, debugLogMaxBodyBytes)
-	if len(reqBody) > 0 && json.Valid(reqBody) {
-		entry.RequestBody = json.RawMessage(reqBody)
+	captureTrunc := len(responseBody) >= debugLogMaxBodyBytes
+	info := &TruncationInfo{}
+
+	// 请求体:走字段级智能截断;失败兜底到 request_text
+	if len(requestBody) > 0 {
+		applyBodyToEntry(requestBody, protocol, debugLogSideRequest, info, entry, false)
 	}
 
-	// 流式响应：先尝试 SSE 聚合为最终 JSON，再走截断/存储。聚合成功后体积通常比
-	// 原始 SSE 小 5-10 倍，且对前端"对话视图"友好；聚合失败回退到原始字节路径。
-	captureTrunc := len(responseBody) >= debugLogMaxBodyBytes
+	// 流式响应:先尝试 SSE 聚合;失败标记 AggregationFailed,后续走原始字节
+	streamAggregated := false
 	if stream && len(responseBody) > 0 {
 		if aggregated, err := AggregateStream(protocol, responseBody); err == nil && len(aggregated) > 0 {
 			responseBody = aggregated
+			streamAggregated = true
+		} else {
+			info.AggregationFailed = true
 		}
 	}
 
-	// 响应体：JSON 进 response_body，非 JSON（错误页、纯文本、聚合失败的 SSE 等）进 response_text
-	truncated := reqTrunc || captureTrunc
-	if len(responseBody) > 0 {
-		respBody, respTrunc := TruncateBody(responseBody, bodyLimit, debugLogMaxBodyBytes)
-		if json.Valid(respBody) {
-			entry.ResponseBody = json.RawMessage(respBody)
-		} else {
-			entry.ResponseText = string(respBody)
-		}
-		truncated = truncated || respTrunc
-	} else if responseText != "" {
-		t, respTrunc := TruncateBody([]byte(responseText), bodyLimit, debugLogMaxBodyBytes)
+	// 响应体:字段级智能截断;聚合失败/非 JSON 兜底到 response_text
+	switch {
+	case len(responseBody) > 0:
+		// 聚合失败(原始 SSE)走字节兜底,不尝试 SmartTruncate
+		forceText := stream && !streamAggregated
+		applyBodyToEntry(responseBody, protocol, debugLogSideResponse, info, entry, forceText)
+	case responseText != "":
+		t, _ := TruncateBody([]byte(responseText), 0, debugLogMaxBodyBytes)
 		entry.ResponseText = string(t)
-		truncated = truncated || respTrunc
 	}
-	entry.Truncated = truncated
+
+	entry.Truncated = captureTrunc || info.hasAny()
+	if info.hasAny() {
+		if b, err := json.Marshal(info); err == nil {
+			entry.TruncationInfo = b
+		}
+	}
 
 	return entry
+}
+
+// applyBodyToEntry 对一段 body(请求或响应)做"字段级智能截断 + 字节硬上限兜底",
+// 把结果写到 entry 的对应字段。
+// forceText=true 表示已知不是 JSON(如流式聚合失败),直接走字节硬截 + Text 列。
+func applyBodyToEntry(body []byte, protocol DebugLogProtocol, side debugLogSide, info *TruncationInfo, entry *RequestDebugLog, forceText bool) {
+	assign := func(jsonBody json.RawMessage, text string) {
+		if side == debugLogSideRequest {
+			entry.RequestBody = jsonBody
+			if text != "" {
+				entry.RequestText = text
+			}
+		} else {
+			entry.ResponseBody = jsonBody
+			if text != "" {
+				entry.ResponseText = text
+			}
+		}
+	}
+
+	if forceText {
+		t, _ := TruncateBody(body, 0, debugLogMaxBodyBytes)
+		assign(nil, string(t))
+		return
+	}
+
+	smart, ok := SmartTruncate(body, protocol, side, info)
+	if !ok {
+		info.SmartFailed = true
+		t, _ := TruncateBody(body, 0, debugLogMaxBodyBytes)
+		assign(nil, string(t))
+		return
+	}
+
+	// 字段级截断后若仍超硬上限(极少数:几十张图、几百轮历史),再做字节硬截。
+	// 此时 JSON 结构很可能被破坏 → 退化到 Text 列。
+	if len(smart) > debugLogMaxBodyBytes {
+		info.OverallCutBytes = len(smart) - debugLogMaxBodyBytes
+		t, _ := TruncateBody(smart, 0, debugLogMaxBodyBytes)
+		if json.Valid(t) {
+			assign(json.RawMessage(t), "")
+		} else {
+			assign(nil, string(t))
+		}
+		return
+	}
+
+	assign(json.RawMessage(smart), "")
 }
 
 // MaxBodyBytes returns the hard upper limit for response capture.

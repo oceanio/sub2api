@@ -7,7 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-IMAGE_TAG="${IMAGE_TAG:-matrixrouter:latest}"
+IMAGE_TAG="${IMAGE_TAG:-oceanio/matrixrouter:latest}"
 BUILDER_NAME="${BUILDX_BUILDER:-matrixrouter-builder}"
 CACHE_DIR="${BUILDX_CACHE_DIR:-/tmp/matrixrouter-buildx-cache}"
 # 默认只构建 amd64（生产部署目标架构）。本地若需 arm64 走 QEMU 模拟会显著变慢，

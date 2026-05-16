@@ -336,9 +336,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		if channelMapping.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
-		shouldDebugLog := h.debugLogService != nil && h.debugLogService.ShouldRecord(c.Request.Context())
+		debugLog := shouldDebugLog(h.debugLogService, c.Request.Context())
 		var respCap *responseCapture
-		if shouldDebugLog {
+		if debugLog {
 			respCap = newResponseCapture(c.Writer, h.debugLogService.MaxBodyBytes())
 			c.Writer = respCap
 		}
@@ -462,7 +462,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				).Error("openai.record_usage_failed", zap.Error(err))
 			}
 		})
-		if shouldDebugLog {
+		if debugLog {
 			var respBody []byte
 			if respCap != nil {
 				respBody = respCap.captured()
@@ -735,9 +735,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		if channelMappingMsg.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMappingMsg.MappedModel)
 		}
-		shouldDebugLog := h.debugLogService != nil && h.debugLogService.ShouldRecord(c.Request.Context())
+		debugLog := shouldDebugLog(h.debugLogService, c.Request.Context())
 		var respCap *responseCapture
-		if shouldDebugLog {
+		if debugLog {
 			respCap = newResponseCapture(c.Writer, h.debugLogService.MaxBodyBytes())
 			c.Writer = respCap
 		}
@@ -852,7 +852,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				).Error("openai_messages.record_usage_failed", zap.Error(err))
 			}
 		})
-		if shouldDebugLog {
+		if debugLog {
 			var respBody []byte
 			if respCap != nil {
 				respBody = respCap.captured()

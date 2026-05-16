@@ -265,6 +265,12 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		AvailableChannelsEnabled: settings.AvailableChannelsEnabled,
 
 		AffiliateEnabled: settings.AffiliateEnabled,
+
+		DebugRequestLogEnabled:       settings.DebugRequestLogEnabled,
+		DebugRequestLogTTLHours:      settings.DebugRequestLogTTLHours,
+		DebugRequestLogSampleRate:    settings.DebugRequestLogSampleRate,
+		DebugRequestLogRedactHeaders: settings.DebugRequestLogRedactHeaders,
+		DebugRequestLogBodyLimit:     settings.DebugRequestLogBodyLimit,
 	}
 
 	// OpenAI fast policy (stored under a dedicated setting key)
@@ -575,6 +581,13 @@ type UpdateSettingsRequest struct {
 
 	// OpenAI fast/flex policy (optional, only updated when provided)
 	OpenAIFastPolicySettings *dto.OpenAIFastPolicySettings `json:"openai_fast_policy_settings,omitempty"`
+
+	// Request Debug Log
+	DebugRequestLogEnabled       *bool `json:"debug_request_log_enabled"`
+	DebugRequestLogTTLHours      *int  `json:"debug_request_log_ttl_hours"`
+	DebugRequestLogSampleRate    *int  `json:"debug_request_log_sample_rate"`
+	DebugRequestLogRedactHeaders *bool `json:"debug_request_log_redact_headers"`
+	DebugRequestLogBodyLimit     *int  `json:"debug_request_log_body_limit_bytes"`
 }
 
 // UpdateSettings 更新系统设置
@@ -1529,6 +1542,11 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.RiskControlEnabled
 		}(),
+		DebugRequestLogEnabled:       boolValueOrDefault(req.DebugRequestLogEnabled, previousSettings.DebugRequestLogEnabled),
+		DebugRequestLogTTLHours:      intValueOrDefault(req.DebugRequestLogTTLHours, previousSettings.DebugRequestLogTTLHours),
+		DebugRequestLogSampleRate:    intValueOrDefault(req.DebugRequestLogSampleRate, previousSettings.DebugRequestLogSampleRate),
+		DebugRequestLogRedactHeaders: boolValueOrDefault(req.DebugRequestLogRedactHeaders, previousSettings.DebugRequestLogRedactHeaders),
+		DebugRequestLogBodyLimit:     intValueOrDefault(req.DebugRequestLogBodyLimit, previousSettings.DebugRequestLogBodyLimit),
 	}
 
 	authSourceDefaults := &service.AuthSourceDefaultSettings{

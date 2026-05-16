@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/andybalholm/brotli"
+	"github.com/klauspost/compress/zstd"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyurl"
@@ -889,6 +890,12 @@ func decompressResponseBody(resp *http.Response) {
 		reader = brotli.NewReader(resp.Body)
 	case "deflate":
 		reader = flate.NewReader(resp.Body)
+	case "zstd":
+		zr, err := zstd.NewReader(resp.Body)
+		if err != nil {
+			return
+		}
+		reader = &zstdReadCloser{Decoder: zr}
 	default:
 		return
 	}
@@ -898,6 +905,21 @@ func decompressResponseBody(resp *http.Response) {
 	resp.Header.Del("Content-Encoding")
 	resp.Header.Del("Content-Length") // 解压后长度不确定
 	resp.ContentLength = -1
+	slog.Info("upstream_response_decompressed",
+		"encoding", ce,
+		"status", resp.StatusCode,
+		"upstream_request_id", resp.Header.Get("x-request-id"),
+	)
+}
+
+// zstdReadCloser 适配 *zstd.Decoder 到 io.ReadCloser（Decoder.Close 无返回值）。
+type zstdReadCloser struct {
+	*zstd.Decoder
+}
+
+func (z *zstdReadCloser) Close() error {
+	z.Decoder.Close()
+	return nil
 }
 
 // decompressedBody 组合解压 reader 和原始 body 的 close。

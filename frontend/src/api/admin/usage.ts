@@ -201,6 +201,28 @@ export async function cancelCleanupTask(taskId: number): Promise<{ id: number; s
  * `found=false` means the log was not captured (debug switch off, sampled out,
  * expired, or request type not eligible).
  */
+export interface DebugLogFieldCut {
+  path: string
+  original_bytes: number
+  cut_bytes: number
+  mode: 'tail' | 'head_tail'
+}
+
+export interface DebugLogTruncationInfo {
+  request?: DebugLogFieldCut[]
+  response?: DebugLogFieldCut[]
+  images_stripped?: number
+  tool_results_cut?: number
+  tool_results_elided?: number
+  tools_simplified?: number
+  tools_bytes_saved?: number
+  signatures_stripped?: number
+  cache_control_stripped?: number
+  overall_cut_bytes?: number
+  aggregation_failed?: boolean
+  smart_failed?: boolean
+}
+
 export interface DebugLogResponse {
   found: boolean
   request_id?: string
@@ -208,9 +230,11 @@ export interface DebugLogResponse {
   stream?: boolean
   request_headers?: Record<string, string>
   request_body?: unknown
+  request_text?: string
   response_body?: unknown
   response_text?: string
   truncated?: boolean
+  truncation_info?: DebugLogTruncationInfo
   body_bytes?: number
   created_at?: string
   expires_at?: string

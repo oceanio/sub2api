@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -44,11 +45,32 @@ func (r *responseCapture) captured() []byte {
 	return r.buf
 }
 
+// shouldDebugLog checks whether debug logging should be activated for this
+// request. Any panic inside ShouldRecord is caught and treated as "no" so the
+// debug-log feature can never affect the main request path.
+func shouldDebugLog(svc *service.RequestDebugLogService, ctx context.Context) bool {
+	if svc == nil {
+		return false
+	}
+	ok := false
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("debug_log_should_record_panic", "recover", r)
+			}
+		}()
+		ok = svc.ShouldRecord(ctx)
+	}()
+	return ok
+}
+
 // enqueueDebugLog builds a debug log entry and pushes it to the service queue.
 // Shared by Anthropic gateway handler and OpenAI gateway handler.
 //
-// svc 为 nil 时无操作；调用方应在 Forward 成功后调用，并通过 protocol 告知
-// 上游协议以便流式响应能被正确聚合。
+// All work (BuildEntry + Enqueue) runs in a detached goroutine with panic
+// recovery so that any failure in the debug-log path never affects the
+// already-committed LLM response. context.Background() is used because the
+// request context may already be cancelled by the time the goroutine runs.
 func enqueueDebugLog(
 	svc *service.RequestDebugLogService,
 	ctx context.Context,
@@ -64,13 +86,14 @@ func enqueueDebugLog(
 	if svc == nil {
 		return
 	}
+
 	if requestID == "" {
 		requestID, _ = ctx.Value(ctxkey.RequestID).(string)
 	}
 	if requestID == "" {
-		// 上游与中间件都未提供 request_id 时本地生成，dbg- 前缀便于识别降级路径。
 		requestID = "dbg-" + uuid.NewString()
 	}
+
 	var userID, apiKeyID, groupID *int64
 	if apiKey != nil {
 		id := apiKey.ID
@@ -81,6 +104,14 @@ func enqueueDebugLog(
 			userID = &uid
 		}
 	}
-	entry := svc.BuildEntry(ctx, requestID, userID, apiKeyID, groupID, model, stream, protocol, headers, reqBody, respBody, "")
-	svc.Enqueue(entry)
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("debug_log_enqueue_panic", "request_id", requestID, "recover", r)
+			}
+		}()
+		entry := svc.BuildEntry(context.Background(), requestID, userID, apiKeyID, groupID, model, stream, protocol, headers, reqBody, respBody, "")
+		svc.Enqueue(entry)
+	}()
 }
