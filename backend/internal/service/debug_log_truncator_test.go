@@ -254,8 +254,14 @@ func TestSmartTruncate_OpenAITools_SimplifiedToNames(t *testing.T) {
 }
 
 func TestSmartTruncate_AnthropicThinking_SignatureStripped(t *testing.T) {
+	// thinking signature 通常出现在 assistant 响应中。请求侧 messages 里若含
+	// assistant thinking 块，只有在"最后一个 user 之后"才会进入字段级处理。
+	// 这里把 thinking assistant 放在 user 之后（典型场景：续接 assistant 上一轮的
+	// thinking + tool_use，然后再发 tool_result 回去 → 但 tool_result 是 user 角色
+	// 在更后面）。为了让 thinking 块进入"保留区"，需放在最后一个 user 后面。
 	req := map[string]any{
 		"messages": []any{
+			map[string]any{"role": "user", "content": "hi"},
 			map[string]any{
 				"role": "assistant",
 				"content": []any{
@@ -270,7 +276,6 @@ func TestSmartTruncate_AnthropicThinking_SignatureStripped(t *testing.T) {
 					},
 				},
 			},
-			map[string]any{"role": "user", "content": "hi"},
 		},
 	}
 	body, _ := json.Marshal(req)
@@ -290,11 +295,12 @@ func TestSmartTruncate_AnthropicThinking_SignatureStripped(t *testing.T) {
 	}
 }
 
-func TestSmartTruncate_AnthropicHistoricalToolResult_Elided(t *testing.T) {
+func TestSmartTruncate_AnthropicHistoricalMessages_Elided(t *testing.T) {
+	// 历史轮次（含 tool_result 大输出）应被整段聚合，只保留最后一个 user 起的部分。
 	bigOutput := strings.Repeat("x", 4096)
 	req := map[string]any{
 		"messages": []any{
-			// 历史轮(超出最近 2 条)
+			// 历史 4 条
 			map[string]any{"role": "user", "content": "first"},
 			map[string]any{"role": "assistant", "content": []any{
 				map[string]any{"type": "tool_use", "id": "call_1", "name": "Bash", "input": map[string]any{"cmd": "ls"}},
@@ -302,10 +308,10 @@ func TestSmartTruncate_AnthropicHistoricalToolResult_Elided(t *testing.T) {
 			map[string]any{"role": "user", "content": []any{
 				map[string]any{"type": "tool_result", "tool_use_id": "call_1", "content": bigOutput},
 			}},
-			// 最近 2 条:tool_use + tool_result 都保留
 			map[string]any{"role": "assistant", "content": []any{
 				map[string]any{"type": "tool_use", "id": "call_2", "name": "Bash", "input": map[string]any{"cmd": "pwd"}},
 			}},
+			// 最后一个 user：从这里开始保留
 			map[string]any{"role": "user", "content": []any{
 				map[string]any{"type": "tool_result", "tool_use_id": "call_2", "content": "/tmp"},
 			}},
@@ -317,18 +323,19 @@ func TestSmartTruncate_AnthropicHistoricalToolResult_Elided(t *testing.T) {
 	if !ok {
 		t.Fatalf("SmartTruncate failed")
 	}
-	if info.ToolResultsElided != 1 {
-		t.Errorf("expected ToolResultsElided=1, got %d", info.ToolResultsElided)
+	if info.HistoricalMessagesElided != 4 {
+		t.Errorf("expected HistoricalMessagesElided=4, got %d", info.HistoricalMessagesElided)
 	}
 	// 历史的 4KB 输出消失,最近的 /tmp 还在
 	if strings.Contains(string(out), strings.Repeat("x", 100)) {
-		t.Errorf("historical tool_result should be elided")
+		t.Errorf("historical tool_result content should be elided")
 	}
 	if !strings.Contains(string(out), "/tmp") {
 		t.Errorf("recent tool_result should be preserved")
 	}
-	if !strings.Contains(string(out), "call_1") {
-		t.Errorf("historical tool_use_id reference should be kept in placeholder")
+	// 占位消息应描述历史 block 类型分布（tool_use/tool_result 计数）
+	if !strings.Contains(string(out), "historical 4 message(s) elided") {
+		t.Errorf("expected aggregate placeholder, got: %s", string(out))
 	}
 }
 

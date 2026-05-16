@@ -351,19 +351,23 @@ func truncateMessagesLazy(raw json.RawMessage, protocol DebugLogProtocol, tc *tr
 	return out, true
 }
 
-// findLastTurnStartFromRoles 用浅层 role 数组定位最近一轮起点。
-// 语义与 findLastTurnStart 一致：倒数第二个 user 之后。
+// findLastTurnStartFromRoles 返回"最后一个 user 消息"的下标。该消息及之后
+// 的所有消息（通常是当前请求新发起的轮次）原样保留，之前的全部进入历史聚合。
+//
+// 设计理由：上一轮的 assistant 应答在前一次 debug log 里已存（前一次请求的
+// response_body），当前请求 messages 中复述的历史 assistant 没有新信息量。
+// 只保留最后一个 user 起的部分能最大化字节节省。
+//
+// 边界：
+//   - 没有任何 user 消息：返回 0（保守保留全部，避免误聚合 system-only prompt）
+//   - 仅一个 user 消息（首轮请求）：返回该 user 的下标 0
 func findLastTurnStartFromRoles(roles []string) int {
-	userIdxs := make([]int, 0, 2)
-	for i, r := range roles {
-		if r == "user" {
-			userIdxs = append(userIdxs, i)
+	for i := len(roles) - 1; i >= 0; i-- {
+		if roles[i] == "user" {
+			return i
 		}
 	}
-	if len(userIdxs) < 2 {
-		return 0
-	}
-	return userIdxs[len(userIdxs)-2] + 1
+	return 0
 }
 
 // aggregateHistoricalMessagesLazy 对每条历史消息只做浅层解析：role + content
