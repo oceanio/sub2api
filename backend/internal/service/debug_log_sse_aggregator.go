@@ -61,7 +61,11 @@ type sseAggregator interface {
 func feedSSE(raw []byte, agg sseAggregator) error {
 	scanner := bufio.NewScanner(bytes.NewReader(raw))
 	// SSE 中单事件 data 可能比默认 64 KB 还大（如完整的 message_start payload），放宽到 1 MB。
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	// 64KB 初始 buf 来自 sseScannerBuf64KPool 复用，避免每次 AggregateStream 都分配；
+	// 单事件超过 64KB 时 scanner 内部会自行 grow 到 1MB，那段新分配的 buf 不进池。
+	bufArr := getSSEScannerBuf64K()
+	defer putSSEScannerBuf64K(bufArr)
+	scanner.Buffer(bufArr[:0], 1024*1024)
 
 	var name string
 	var data strings.Builder
