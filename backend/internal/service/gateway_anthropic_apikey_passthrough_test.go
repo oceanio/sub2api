@@ -814,7 +814,10 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingStillCollectsUsageAf
 	require.Equal(t, 5, result.usage.OutputTokens)
 }
 
-func TestGatewayService_AnthropicAPIKeyPassthrough_MissingTerminalEventReturnsError(t *testing.T) {
+// TestGatewayService_AnthropicAPIKeyPassthrough_MissingTerminalEventPartialContent
+// 验证：上游 SSE 流缺少 message_stop / [DONE] 等 terminal event，但已经发送了
+// 部分数据时，不报错（避免误判 failover）。客户端已收到数据，billing 正常计费。
+func TestGatewayService_AnthropicAPIKeyPassthrough_MissingTerminalEventPartialContent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
@@ -842,8 +845,43 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_MissingTerminalEventReturnsEr
 	}
 
 	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 1}, time.Now(), "claude-3-7-sonnet-20250219")
+	require.NoError(t, err, "已发送部分内容 + 缺 terminal event 不应报错")
+	require.NotNil(t, result)
+	// usage 仍按已收到的事件计算
+	require.NotNil(t, result.usage)
+	require.Equal(t, 11, result.usage.InputTokens)
+	require.Equal(t, 5, result.usage.OutputTokens)
+}
+
+// TestGatewayService_AnthropicAPIKeyPassthrough_MissingTerminalEventNoContent
+// 验证：上游连第一行 SSE 都没发就断链，触发 UpstreamFailoverError 切其他账号。
+func TestGatewayService_AnthropicAPIKeyPassthrough_MissingTerminalEventNoContent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	svc := &GatewayService{
+		cfg: &config.Config{
+			Gateway: config.GatewayConfig{
+				MaxLineSize: defaultMaxLineSize,
+			},
+		},
+		rateLimitService: &RateLimitService{},
+	}
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader("")),
+	}
+
+	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 1}, time.Now(), "claude-3-7-sonnet-20250219")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "missing terminal event")
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr, "应返回 UpstreamFailoverError 触发 failover")
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
 	require.NotNil(t, result)
 }
 
