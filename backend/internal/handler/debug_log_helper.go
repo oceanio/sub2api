@@ -21,8 +21,14 @@ type responseCapture struct {
 	limit int
 }
 
+// responseCaptureInitCap 是 buf 的初始容量。流式 SSE 每行 ~100B，
+// 不预分配会反复 append 扩容。64KB 覆盖大多数响应，超出时再按 append
+// 的 2x 策略扩到 limit 上限。
+const responseCaptureInitCap = 64 * 1024
+
 func newResponseCapture(w gin.ResponseWriter, limit int) *responseCapture {
-	return &responseCapture{ResponseWriter: w, limit: limit}
+	initCap := min(limit, responseCaptureInitCap)
+	return &responseCapture{ResponseWriter: w, limit: limit, buf: make([]byte, 0, initCap)}
 }
 
 func (r *responseCapture) Write(b []byte) (int, error) {
