@@ -45,11 +45,24 @@ const (
 	debugLogWorkerCount   = 2
 	debugLogQueueSize     = 1000
 	debugLogBatchSize     = 50
+	debugLogBatchBytes    = 8 * 1024 * 1024 // 8 MB 单 batch 字节上限，避免 1MB×50=50MB 巨型事务
 	debugLogFlushInterval = 2 * time.Second
 	debugLogMaxBodyBytes  = 1024 * 1024 // 1 MB 硬上限(Anthropic 已支持 1M context)
 	debugLogCleanupEvery  = 10 * time.Minute
 	debugLogCleanupBatch  = 5000
 )
+
+// estimateSize 估算单条 RequestDebugLog 序列化后的字节数，用于 batch 字节配额。
+// 取主要 body 字段长度即可，header / 元信息相对很小可忽略。
+func (l *RequestDebugLog) estimateSize() int {
+	if l == nil {
+		return 0
+	}
+	return len(l.RequestBody) + len(l.ResponseBody) +
+		len(l.RequestText) + len(l.ResponseText) +
+		len(l.RequestHeaders) + len(l.ResponseHeaders) +
+		len(l.TruncationInfo)
+}
 
 // RequestDebugLogService 异步写入调试日志
 type RequestDebugLogService struct {
@@ -262,6 +275,7 @@ func (s *RequestDebugLogService) Stop() {
 func (s *RequestDebugLogService) worker() {
 	defer s.wg.Done()
 	batch := make([]*RequestDebugLog, 0, debugLogBatchSize)
+	batchBytes := 0
 	ticker := time.NewTicker(debugLogFlushInterval)
 	defer ticker.Stop()
 
@@ -275,6 +289,7 @@ func (s *RequestDebugLogService) worker() {
 			slog.Error("debug_log_batch_insert_failed", "count", len(batch), "error", err)
 		}
 		batch = batch[:0]
+		batchBytes = 0
 	}
 
 	for {
@@ -285,7 +300,9 @@ func (s *RequestDebugLogService) worker() {
 				return
 			}
 			batch = append(batch, log)
-			if len(batch) >= debugLogBatchSize {
+			batchBytes += log.estimateSize()
+			// 条数或字节任一达到上限即 flush，避免 50×1MB=50MB 巨型事务
+			if len(batch) >= debugLogBatchSize || batchBytes >= debugLogBatchBytes {
 				flush()
 			}
 		case <-ticker.C:
@@ -297,6 +314,10 @@ func (s *RequestDebugLogService) worker() {
 				select {
 				case log := <-s.queue:
 					batch = append(batch, log)
+					batchBytes += log.estimateSize()
+					if batchBytes >= debugLogBatchBytes {
+						flush()
+					}
 				default:
 					break drain
 				}
