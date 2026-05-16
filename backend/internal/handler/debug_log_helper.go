@@ -122,7 +122,14 @@ func enqueueDebugLog(
 		respHdrClone = respHeaders.Clone()
 	}
 
+	// 并发上限：满了直接丢弃，避免突发流量打爆 CPU/GC
+	if !svc.AcquireBuildSlot() {
+		slog.Warn("debug_log_build_slot_full_dropped", "request_id", requestID)
+		return
+	}
+
 	go func() {
+		defer svc.ReleaseBuildSlot()
 		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("debug_log_enqueue_panic", "request_id", requestID, "recover", r)

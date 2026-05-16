@@ -126,8 +126,11 @@ const (
 	debugLogSettingsCacheTTL = 60 * time.Second
 	debugLogSettingsErrorTTL = 5 * time.Second
 
-	debugLogDefaultTTLHours   = 168 // 7 天
-	debugLogDefaultSampleRate = 100
+	debugLogDefaultTTLHours = 168 // 7 天
+	// 默认采样率从 100 降到 10：调试日志是排障工具，不是审计日志，
+	// 100% 采样在高 QPS 下会带来显著的 CPU/GC/DB 压力（详见 RequestDebugLogService 注释）。
+	// 运维需要时可在 settings 调回 100。
+	debugLogDefaultSampleRate = 10
 	debugLogDefaultBodyLimit  = 1024
 )
 

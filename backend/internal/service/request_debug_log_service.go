@@ -50,6 +50,16 @@ const (
 	debugLogMaxBodyBytes  = 1024 * 1024 // 1 MB 硬上限(Anthropic 已支持 1M context)
 	debugLogCleanupEvery  = 10 * time.Minute
 	debugLogCleanupBatch  = 5000
+
+	// 反压相关
+	// debugLogBuildConcurrency 限制并发执行 BuildEntry 的 goroutine 数。
+	// BuildEntry 内会跑 JSON Unmarshal + 树遍历 + Marshal，单条最大 1MB
+	// JSON 在 map[string]any 下膨胀 3-5x；32 是经验值，约对应满载 32 核。
+	debugLogBuildConcurrency = 32
+	// debugLogQueueHighWatermark 队列高水位（占容量比例的分子/分母）。
+	// 超过水位时 ShouldRecord 直接拒绝新采样，避免主路径继续投入工作量。
+	debugLogQueueHighWatermarkNum = 8
+	debugLogQueueHighWatermarkDen = 10
 )
 
 // estimateSize 估算单条 RequestDebugLog 序列化后的字节数，用于 batch 字节配额。
@@ -69,8 +79,10 @@ type RequestDebugLogService struct {
 	repo           RequestDebugLogRepository
 	settingService *SettingService
 	queue          chan *RequestDebugLog
-	wg             sync.WaitGroup
-	stopCh         chan struct{}
+	// buildSem 限制并发跑 BuildEntry 的 goroutine 数，避免突发流量打爆 CPU/GC
+	buildSem chan struct{}
+	wg       sync.WaitGroup
+	stopCh   chan struct{}
 }
 
 func NewRequestDebugLogService(
@@ -81,13 +93,19 @@ func NewRequestDebugLogService(
 		repo:           repo,
 		settingService: settingService,
 		queue:          make(chan *RequestDebugLog, debugLogQueueSize),
+		buildSem:       make(chan struct{}, debugLogBuildConcurrency),
 		stopCh:         make(chan struct{}),
 	}
 }
 
-// ShouldRecord 检查全局开关 + 采样率，主链路调用（轻量）
+// ShouldRecord 检查全局开关 + 采样率，主链路调用（轻量）。
+// 高水位时直接拒绝采样，避免主路径继续投入 responseCapture / BuildEntry 等工作。
 func (s *RequestDebugLogService) ShouldRecord(ctx context.Context) bool {
 	if !s.settingService.IsDebugRequestLogEnabled(ctx) {
+		return false
+	}
+	// F1 反压：queue 水位 >80% 时直接拒绝。len(chan) 是 O(1) 原子读，热路径可承受。
+	if len(s.queue)*debugLogQueueHighWatermarkDen >= debugLogQueueSize*debugLogQueueHighWatermarkNum {
 		return false
 	}
 	rate := s.settingService.GetDebugRequestLogSampleRate(ctx)
@@ -95,6 +113,22 @@ func (s *RequestDebugLogService) ShouldRecord(ctx context.Context) bool {
 		return true
 	}
 	return rand.IntN(100) < rate
+}
+
+// AcquireBuildSlot 在 BuildEntry 之前调用，限制并发解析数。
+// 非阻塞：满了直接返回 false，调用方丢弃这条日志。
+func (s *RequestDebugLogService) AcquireBuildSlot() bool {
+	select {
+	case s.buildSem <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+// ReleaseBuildSlot 在 BuildEntry 完成后释放（无论成功失败）。
+func (s *RequestDebugLogService) ReleaseBuildSlot() {
+	<-s.buildSem
 }
 
 // Enqueue 投入队列；队列满则丢弃，不阻塞主流程
