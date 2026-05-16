@@ -254,6 +254,13 @@ func (s *RequestDebugLogService) BuildEntry(
 	return entry
 }
 
+// smartTruncateMinBytes 小于该阈值的 body 直接原样存，不进 SmartTruncate。
+// 依据：Claude Code 首轮请求（system + tools schema）通常 30-80KB，
+// 32KB 阈值能跳过非首轮的纯文本对话（绝大多数），又能保证带工具定义的
+// 大请求走截断路径。这一招对总 CPU 占用的下降比换 JSON 库还猛——绝大多数
+// 请求根本不进 SmartTruncate。
+const smartTruncateMinBytes = 32 * 1024
+
 // applyBodyToEntry 对一段 body(请求或响应)做"字段级智能截断 + 字节硬上限兜底",
 // 把结果写到 entry 的对应字段。
 // forceText=true 表示已知不是 JSON(如流式聚合失败),直接走字节硬截 + Text 列。
@@ -273,6 +280,19 @@ func applyBodyToEntry(body []byte, protocol DebugLogProtocol, side debugLogSide,
 	}
 
 	if forceText {
+		t, _ := TruncateBody(body, 0, debugLogMaxBodyBytes)
+		assign(nil, string(t))
+		return
+	}
+
+	// 小 body 早返回：跳过 SmartTruncate 的 Unmarshal/遍历/Marshal 三步走。
+	// JSON 校验在 PG JSONB 列入库时也会做，但这里先在应用层校验避免无谓的入库失败。
+	if len(body) < smartTruncateMinBytes {
+		if json.Valid(body) {
+			assign(json.RawMessage(body), "")
+			return
+		}
+		// 非 JSON 走文本兜底
 		t, _ := TruncateBody(body, 0, debugLogMaxBodyBytes)
 		assign(nil, string(t))
 		return
