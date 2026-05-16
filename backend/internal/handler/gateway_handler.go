@@ -552,7 +552,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				if respCap != nil {
 					respBody = respCap.captured()
 				}
-				enqueueDebugLog(h.debugLogService, c.Request.Context(), result.RequestID, apiKey, reqModel, reqStream, service.DebugLogProtocolAnthropic, c.Request.Header, body, respBody)
+				enqueueDebugLog(h.debugLogService, c.Request.Context(), result.RequestID, apiKey, reqModel, reqStream, service.DebugLogProtocolAnthropic, c.Request.Header, body, c.Writer.Header(), respBody)
 			}
 			return
 		}
@@ -956,7 +956,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				if respCap != nil {
 					respBody = respCap.captured()
 				}
-				enqueueDebugLog(h.debugLogService, c.Request.Context(), result.RequestID, currentAPIKey, reqModel, reqStream, service.DebugLogProtocolAnthropic, c.Request.Header, body, respBody)
+				enqueueDebugLog(h.debugLogService, c.Request.Context(), result.RequestID, currentAPIKey, reqModel, reqStream, service.DebugLogProtocolAnthropic, c.Request.Header, body, c.Writer.Header(), respBody)
 			}
 			return
 		}

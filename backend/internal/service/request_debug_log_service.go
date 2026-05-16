@@ -24,6 +24,7 @@ type RequestDebugLog struct {
 	RequestHeaders  json.RawMessage
 	RequestBody     json.RawMessage
 	RequestText     string          // 字段级截断不可行时的请求兜底文本
+	ResponseHeaders json.RawMessage
 	ResponseBody    json.RawMessage
 	ResponseText    string
 	Truncated       bool
@@ -46,8 +47,8 @@ const (
 	debugLogBatchSize     = 50
 	debugLogFlushInterval = 2 * time.Second
 	debugLogMaxBodyBytes  = 1024 * 1024 // 1 MB 硬上限(Anthropic 已支持 1M context)
-	debugLogCleanupEvery  = time.Hour
-	debugLogCleanupBatch  = 500
+	debugLogCleanupEvery  = 10 * time.Minute
+	debugLogCleanupBatch  = 5000
 )
 
 // RequestDebugLogService 异步写入调试日志
@@ -111,6 +112,7 @@ func (s *RequestDebugLogService) BuildEntry(
 	protocol DebugLogProtocol,
 	headers http.Header,
 	requestBody []byte,
+	responseHeaders http.Header,
 	responseBody []byte,
 	responseText string,
 ) *RequestDebugLog {
@@ -134,6 +136,14 @@ func (s *RequestDebugLogService) BuildEntry(
 		sanitized := SanitizeHeaders(headers, redact)
 		if b, err := json.Marshal(sanitized); err == nil {
 			entry.RequestHeaders = b
+		}
+	}
+
+	// 响应头
+	if responseHeaders != nil {
+		sanitized := SanitizeHeaders(responseHeaders, redact)
+		if b, err := json.Marshal(sanitized); err == nil {
+			entry.ResponseHeaders = b
 		}
 	}
 

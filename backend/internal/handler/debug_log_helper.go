@@ -81,6 +81,7 @@ func enqueueDebugLog(
 	protocol service.DebugLogProtocol,
 	headers http.Header,
 	reqBody []byte,
+	respHeaders http.Header,
 	respBody []byte,
 ) {
 	if svc == nil {
@@ -111,7 +112,7 @@ func enqueueDebugLog(
 				slog.Error("debug_log_enqueue_panic", "request_id", requestID, "recover", r)
 			}
 		}()
-		entry := svc.BuildEntry(context.Background(), requestID, userID, apiKeyID, groupID, model, stream, protocol, headers, reqBody, respBody, "")
+		entry := svc.BuildEntry(context.Background(), requestID, userID, apiKeyID, groupID, model, stream, protocol, headers.Clone(), reqBody, respHeaders.Clone(), respBody, "")
 		svc.Enqueue(entry)
 	}()
 }

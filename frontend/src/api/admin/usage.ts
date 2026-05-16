@@ -214,6 +214,7 @@ export interface DebugLogTruncationInfo {
   images_stripped?: number
   tool_results_cut?: number
   tool_results_elided?: number
+  historical_messages_elided?: number
   tools_simplified?: number
   tools_bytes_saved?: number
   signatures_stripped?: number
@@ -231,6 +232,7 @@ export interface DebugLogResponse {
   request_headers?: Record<string, string>
   request_body?: unknown
   request_text?: string
+  response_headers?: Record<string, string>
   response_body?: unknown
   response_text?: string
   truncated?: boolean

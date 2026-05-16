@@ -93,6 +93,12 @@
           <p v-if="data.truncation_info?.tool_results_elided && data.truncation_info.tool_results_elided > 0">
             🗂 {{ t('admin.usage.debugLogModal.truncationToolResultsElided', { count: data.truncation_info.tool_results_elided }) }}
           </p>
+          <p v-if="data.truncation_info?.tool_results_cut && data.truncation_info.tool_results_cut > 0">
+            ✂ {{ t('admin.usage.debugLogModal.truncationToolResultsCut', { count: data.truncation_info.tool_results_cut }) }}
+          </p>
+          <p v-if="data.truncation_info?.historical_messages_elided && data.truncation_info.historical_messages_elided > 0">
+            📜 {{ t('admin.usage.debugLogModal.truncationHistoricalMessagesElided', { count: data.truncation_info.historical_messages_elided }) }}
+          </p>
           <p v-if="data.truncation_info?.signatures_stripped && data.truncation_info.signatures_stripped > 0">
             🔏 {{ t('admin.usage.debugLogModal.truncationSignaturesStripped', { count: data.truncation_info.signatures_stripped }) }}
           </p>
@@ -100,11 +106,21 @@
             🧹 {{ t('admin.usage.debugLogModal.truncationCacheControlStripped', { count: data.truncation_info.cache_control_stripped }) }}
           </p>
           <div v-if="data.truncation_info?.request && data.truncation_info.request.length > 0">
-            <div class="mb-1 font-semibold">{{ t('admin.usage.debugLogModal.truncationFieldRequest') }}</div>
+            <div class="mb-1 flex items-baseline justify-between">
+              <span class="font-semibold">{{ t('admin.usage.debugLogModal.truncationFieldRequest') }}</span>
+              <span class="font-normal text-amber-700 dark:text-amber-300">
+                {{ t('admin.usage.debugLogModal.truncationSubtotal', { bytes: formatBytes(requestCutTotal) }) }}
+              </span>
+            </div>
             <TruncationTable :rows="data.truncation_info.request" />
           </div>
           <div v-if="data.truncation_info?.response && data.truncation_info.response.length > 0">
-            <div class="mb-1 font-semibold">{{ t('admin.usage.debugLogModal.truncationFieldResponse') }}</div>
+            <div class="mb-1 flex items-baseline justify-between">
+              <span class="font-semibold">{{ t('admin.usage.debugLogModal.truncationFieldResponse') }}</span>
+              <span class="font-normal text-amber-700 dark:text-amber-300">
+                {{ t('admin.usage.debugLogModal.truncationSubtotal', { bytes: formatBytes(responseCutTotal) }) }}
+              </span>
+            </div>
             <TruncationTable :rows="data.truncation_info.response" />
           </div>
         </div>
@@ -168,17 +184,41 @@
       </div>
 
       <div v-show="activeTab === 'headers'">
-        <div v-if="headerEntries.length > 0" class="overflow-hidden rounded-md border border-gray-200 dark:border-dark-700">
-          <table class="min-w-full divide-y divide-gray-200 text-xs dark:divide-dark-700">
-            <tbody class="divide-y divide-gray-200 dark:divide-dark-700">
-              <tr v-for="[name, value] in headerEntries" :key="name" class="hover:bg-gray-50 dark:hover:bg-dark-800/40">
-                <th class="w-1/3 break-all px-3 py-2 text-left align-top font-medium text-gray-700 dark:text-gray-300">{{ name }}</th>
-                <td class="break-all px-3 py-2 align-top font-mono text-gray-600 dark:text-gray-400">{{ value }}</td>
-              </tr>
-            </tbody>
-          </table>
+        <div class="space-y-4">
+          <div>
+            <h4 class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">
+              {{ t('admin.usage.debugLogModal.requestHeaders') }}
+            </h4>
+            <div v-if="headerEntries.length > 0" class="overflow-hidden rounded-md border border-gray-200 dark:border-dark-700">
+              <table class="min-w-full divide-y divide-gray-200 text-xs dark:divide-dark-700">
+                <tbody class="divide-y divide-gray-200 dark:divide-dark-700">
+                  <tr v-for="[name, value] in headerEntries" :key="`req-${name}`" class="hover:bg-gray-50 dark:hover:bg-dark-800/40">
+                    <th class="w-1/3 break-all px-3 py-2 text-left align-top font-medium text-gray-700 dark:text-gray-300">{{ name }}</th>
+                    <td class="break-all px-3 py-2 align-top font-mono text-gray-600 dark:text-gray-400">{{ value }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p v-else class="px-1 py-2 text-xs italic text-gray-500 dark:text-gray-400">{{ t('admin.usage.debugLogModal.empty') }}</p>
+          </div>
+
+          <div>
+            <h4 class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">
+              {{ t('admin.usage.debugLogModal.responseHeaders') }}
+            </h4>
+            <div v-if="responseHeaderEntries.length > 0" class="overflow-hidden rounded-md border border-gray-200 dark:border-dark-700">
+              <table class="min-w-full divide-y divide-gray-200 text-xs dark:divide-dark-700">
+                <tbody class="divide-y divide-gray-200 dark:divide-dark-700">
+                  <tr v-for="[name, value] in responseHeaderEntries" :key="`resp-${name}`" class="hover:bg-gray-50 dark:hover:bg-dark-800/40">
+                    <th class="w-1/3 break-all px-3 py-2 text-left align-top font-medium text-gray-700 dark:text-gray-300">{{ name }}</th>
+                    <td class="break-all px-3 py-2 align-top font-mono text-gray-600 dark:text-gray-400">{{ value }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p v-else class="px-1 py-2 text-xs italic text-gray-500 dark:text-gray-400">{{ t('admin.usage.debugLogModal.empty') }}</p>
+          </div>
         </div>
-        <p v-else class="px-1 py-2 text-xs italic text-gray-500 dark:text-gray-400">{{ t('admin.usage.debugLogModal.empty') }}</p>
       </div>
     </div>
 
@@ -272,6 +312,12 @@ const headerEntries = computed<Array<[string, string]>>(() => {
   return Object.entries(h).map(([k, v]) => [k, String(v)])
 })
 
+const responseHeaderEntries = computed<Array<[string, string]>>(() => {
+  const h = data.value?.response_headers
+  if (!h) return []
+  return Object.entries(h).map(([k, v]) => [k, String(v)])
+})
+
 const hasTruncationInfo = computed(() => {
   const info = data.value?.truncation_info
   if (!info) return false
@@ -282,6 +328,7 @@ const hasTruncationInfo = computed(() => {
     !!info.tool_results_cut ||
     !!info.tools_simplified ||
     !!info.tool_results_elided ||
+    !!info.historical_messages_elided ||
     !!info.signatures_stripped ||
     !!info.cache_control_stripped ||
     !!info.overall_cut_bytes ||
@@ -295,6 +342,14 @@ const totalFieldCuts = computed(() => {
   if (!info) return 0
   return (info.request?.length ?? 0) + (info.response?.length ?? 0)
 })
+
+const requestCutTotal = computed(() =>
+  (data.value?.truncation_info?.request ?? []).reduce((sum, r) => sum + (r.cut_bytes ?? 0), 0)
+)
+
+const responseCutTotal = computed(() =>
+  (data.value?.truncation_info?.response ?? []).reduce((sum, r) => sum + (r.cut_bytes ?? 0), 0)
+)
 
 async function load(requestId: string) {
   loading.value = true

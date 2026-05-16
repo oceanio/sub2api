@@ -467,7 +467,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			if respCap != nil {
 				respBody = respCap.captured()
 			}
-			enqueueDebugLog(h.debugLogService, c.Request.Context(), result.RequestID, apiKey, reqModel, reqStream, service.DebugLogProtocolOpenAI, c.Request.Header, body, respBody)
+			enqueueDebugLog(h.debugLogService, c.Request.Context(), result.RequestID, apiKey, reqModel, reqStream, service.DebugLogProtocolOpenAI, c.Request.Header, body, c.Writer.Header(), respBody)
 		}
 		reqLog.Debug("openai.request_completed",
 			zap.Int64("account_id", account.ID),
@@ -859,7 +859,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			}
 			// Messages 端点对客户端是 Claude 协议，响应 SSE/JSON 都是 Anthropic 格式，
 			// 即使上游是 OpenAI，聚合也用 Anthropic aggregator。
-			enqueueDebugLog(h.debugLogService, c.Request.Context(), result.RequestID, apiKey, reqModel, reqStream, service.DebugLogProtocolAnthropic, c.Request.Header, body, respBody)
+			enqueueDebugLog(h.debugLogService, c.Request.Context(), result.RequestID, apiKey, reqModel, reqStream, service.DebugLogProtocolAnthropic, c.Request.Header, body, c.Writer.Header(), respBody)
 		}
 		reqLog.Debug("openai_messages.request_completed",
 			zap.Int64("account_id", account.ID),

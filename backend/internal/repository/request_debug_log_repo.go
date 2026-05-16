@@ -24,19 +24,20 @@ func (r *requestDebugLogRepository) BatchInsert(ctx context.Context, logs []*ser
 		return nil
 	}
 
-	const cols = 16
+	const cols = 17
 	placeholders := make([]string, 0, len(logs))
 	args := make([]any, 0, len(logs)*cols)
 
 	for i, l := range logs {
 		base := i * cols
 		placeholders = append(placeholders, fmt.Sprintf(
-			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
+			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
 			base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8,
 			base+9, base+10, base+11, base+12, base+13, base+14, base+15, base+16,
+			base+17,
 		))
 
-		var reqHeaders, reqBody, respBody, truncInfo *string
+		var reqHeaders, reqBody, respHeaders, respBody, truncInfo *string
 		if l.RequestHeaders != nil {
 			s := string(l.RequestHeaders)
 			reqHeaders = &s
@@ -44,6 +45,10 @@ func (r *requestDebugLogRepository) BatchInsert(ctx context.Context, logs []*ser
 		if l.RequestBody != nil {
 			s := string(l.RequestBody)
 			reqBody = &s
+		}
+		if l.ResponseHeaders != nil {
+			s := string(l.ResponseHeaders)
+			respHeaders = &s
 		}
 		if l.ResponseBody != nil {
 			s := string(l.ResponseBody)
@@ -71,6 +76,7 @@ func (r *requestDebugLogRepository) BatchInsert(ctx context.Context, logs []*ser
 			reqHeaders,
 			reqBody,
 			reqText,
+			respHeaders,
 			respBody,
 			respText,
 			l.Truncated,
@@ -85,7 +91,7 @@ func (r *requestDebugLogRepository) BatchInsert(ctx context.Context, logs []*ser
 		INSERT INTO request_debug_logs
 			(request_id, user_id, api_key_id, group_id, model, stream,
 			 request_headers, request_body, request_text,
-			 response_body, response_text,
+			 response_headers, response_body, response_text,
 			 truncated, truncation_info, body_bytes, created_at, expires_at)
 		VALUES %s
 	`, strings.Join(placeholders, ","))
@@ -98,7 +104,7 @@ func (r *requestDebugLogRepository) GetByRequestID(ctx context.Context, requestI
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, request_id, user_id, api_key_id, group_id, model, stream,
 		       request_headers, request_body, request_text,
-		       response_body, response_text,
+		       response_headers, response_body, response_text,
 		       truncated, truncation_info, body_bytes, created_at, expires_at
 		FROM request_debug_logs
 		WHERE request_id = $1
@@ -108,7 +114,7 @@ func (r *requestDebugLogRepository) GetByRequestID(ctx context.Context, requestI
 
 	l := &service.RequestDebugLog{}
 	var userID, apiKeyID, groupID sql.NullInt64
-	var reqHeaders, reqBody, reqText, respBody, respText, truncInfo sql.NullString
+	var reqHeaders, reqBody, reqText, respHeaders, respBody, respText, truncInfo sql.NullString
 
 	err := row.Scan(
 		&l.ID,
@@ -121,6 +127,7 @@ func (r *requestDebugLogRepository) GetByRequestID(ctx context.Context, requestI
 		&reqHeaders,
 		&reqBody,
 		&reqText,
+		&respHeaders,
 		&respBody,
 		&respText,
 		&l.Truncated,
@@ -153,6 +160,9 @@ func (r *requestDebugLogRepository) GetByRequestID(ctx context.Context, requestI
 	}
 	if reqText.Valid {
 		l.RequestText = reqText.String
+	}
+	if respHeaders.Valid {
+		l.ResponseHeaders = json.RawMessage(respHeaders.String)
 	}
 	if respBody.Valid {
 		l.ResponseBody = json.RawMessage(respBody.String)

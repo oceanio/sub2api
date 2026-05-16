@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -13,14 +14,11 @@ import (
 const (
 	// 单条文本字段(system / message.content / content[].text / tool_result.content /
 	// thinking / instructions 等)的软上限
-	debugLogFieldTextLimit = 1024
+	debugLogFieldTextLimit = 256
 	// 工具调用 input / arguments 的软上限
-	debugLogFieldToolLimit = 1024
+	debugLogFieldToolLimit = 256
 	// 头尾各保留多少字节(头+尾合计 = limit,中间替换为占位)
-	debugLogHeadTailSide = 512
-	// 最近 N 条 message 的 tool_result 走正常字段级截断;更早的整段替换为占位。
-	// 历史 tool_result 内容对当前轮的调试价值随时间快速衰减,只留 tool_use_id 引用足够。
-	debugLogRecentMessagesKept = 2
+	debugLogHeadTailSide = 128
 )
 
 // debugLogSide 标识截断目标(请求或响应),用于把字段截断记录归类到 TruncationInfo 的不同槽位。
@@ -41,18 +39,19 @@ type FieldCut struct {
 
 // TruncationInfo 一次截断的完整元信息,序列化后写入 truncation_info 列
 type TruncationInfo struct {
-	Request              []FieldCut `json:"request,omitempty"`
-	Response             []FieldCut `json:"response,omitempty"`
-	ImagesStripped       int        `json:"images_stripped,omitempty"`
-	ToolResultsCut       int        `json:"tool_results_cut,omitempty"`
-	ToolResultsElided    int        `json:"tool_results_elided,omitempty"`  // 历史 tool_result 被替换为占位的数量
-	ToolsSimplified      int        `json:"tools_simplified,omitempty"`     // tools 数组被简化为名字列表的工具数
-	ToolsBytesSaved      int        `json:"tools_bytes_saved,omitempty"`    // tools 简化节省的原始字节数(估算)
-	SignaturesStripped   int        `json:"signatures_stripped,omitempty"`  // 删除的 thinking signature / redacted thinking 块数
-	CacheControlStripped int        `json:"cache_control_stripped,omitempty"` // 删除的 cache_control 标记数
-	OverallCutBytes      int        `json:"overall_cut_bytes,omitempty"`    // 字段级截断后仍超硬上限,被字节硬截
-	AggregationFailed    bool       `json:"aggregation_failed,omitempty"`   // 流式聚合失败,走原始字节兜底
-	SmartFailed          bool       `json:"smart_failed,omitempty"`         // JSON 解析失败,走原始字节兜底
+	Request                  []FieldCut `json:"request,omitempty"`
+	Response                 []FieldCut `json:"response,omitempty"`
+	ImagesStripped           int        `json:"images_stripped,omitempty"`
+	ToolResultsCut           int        `json:"tool_results_cut,omitempty"`
+	ToolResultsElided        int        `json:"tool_results_elided,omitempty"`        // 历史 tool_result 被替换为占位的数量
+	HistoricalMessagesElided int        `json:"historical_messages_elided,omitempty"` // 历史轮次整段占位的消息数(content 被替换,role 保留)
+	ToolsSimplified          int        `json:"tools_simplified,omitempty"`           // tools 数组被简化为名字列表的工具数
+	ToolsBytesSaved          int        `json:"tools_bytes_saved,omitempty"`          // tools 简化节省的原始字节数(估算)
+	SignaturesStripped       int        `json:"signatures_stripped,omitempty"`        // 删除的 thinking signature / redacted thinking 块数
+	CacheControlStripped     int        `json:"cache_control_stripped,omitempty"`     // 删除的 cache_control 标记数
+	OverallCutBytes          int        `json:"overall_cut_bytes,omitempty"`          // 字段级截断后仍超硬上限,被字节硬截
+	AggregationFailed        bool       `json:"aggregation_failed,omitempty"`         // 流式聚合失败,走原始字节兜底
+	SmartFailed              bool       `json:"smart_failed,omitempty"`               // JSON 解析失败,走原始字节兜底
 }
 
 func (t *TruncationInfo) hasAny() bool {
@@ -61,6 +60,7 @@ func (t *TruncationInfo) hasAny() bool {
 	}
 	return len(t.Request) > 0 || len(t.Response) > 0 ||
 		t.ImagesStripped > 0 || t.ToolResultsCut > 0 || t.ToolResultsElided > 0 ||
+		t.HistoricalMessagesElided > 0 ||
 		t.ToolsSimplified > 0 || t.SignaturesStripped > 0 || t.CacheControlStripped > 0 ||
 		t.OverallCutBytes > 0 ||
 		t.AggregationFailed || t.SmartFailed
@@ -68,14 +68,15 @@ func (t *TruncationInfo) hasAny() bool {
 
 // truncCtx 携带遍历过程中需要累加的统计量,避免在多层递归里传递多个指针参数。
 type truncCtx struct {
-	cuts                 []FieldCut
-	stripped             int
-	toolResults          int
-	toolResultsElided    int
-	toolsSimplified      int
-	toolsBytesSaved      int
-	signaturesStripped   int
-	cacheControlStripped int
+	cuts                     []FieldCut
+	stripped                 int
+	toolResults              int
+	toolResultsElided        int
+	historicalMessagesElided int
+	toolsSimplified          int
+	toolsBytesSaved          int
+	signaturesStripped       int
+	cacheControlStripped     int
 }
 
 // SmartTruncate 解析 JSON body,按协议做字段级截断,返回新的 JSON 字节 + 截断记录。
@@ -118,6 +119,7 @@ func SmartTruncate(body []byte, protocol DebugLogProtocol, side debugLogSide, in
 		info.ImagesStripped += tc.stripped
 		info.ToolResultsCut += tc.toolResults
 		info.ToolResultsElided += tc.toolResultsElided
+		info.HistoricalMessagesElided += tc.historicalMessagesElided
 		info.ToolsSimplified += tc.toolsSimplified
 		info.ToolsBytesSaved += tc.toolsBytesSaved
 		info.SignaturesStripped += tc.signaturesStripped
@@ -212,16 +214,139 @@ func truncateAnthropicRequest(root any, tc *truncCtx) {
 
 	// messages
 	if msgs, ok := m["messages"].([]any); ok {
-		total := len(msgs)
+		lastTurnStart := findLastTurnStart(msgs)
+		if summary := aggregateHistoricalMessages(msgs, lastTurnStart, true, tc); summary != nil {
+			recent := msgs[lastTurnStart:]
+			merged := make([]any, 0, len(recent)+1)
+			merged = append(merged, summary)
+			merged = append(merged, recent...)
+			msgs = merged
+			m["messages"] = msgs
+			lastTurnStart = 1
+		}
 		for i, msg := range msgs {
+			if i < lastTurnStart {
+				continue
+			}
 			msgMap, ok := msg.(map[string]any)
 			if !ok {
 				continue
 			}
-			// 距离末尾 < debugLogRecentMessagesKept 的是"最近"消息,其它视为"历史"
-			isHistorical := total-i > debugLogRecentMessagesKept
-			truncateAnthropicMessageContent(msgMap, fmt.Sprintf("messages[%d]", i), tc, isHistorical)
+			truncateAnthropicMessageContent(msgMap, fmt.Sprintf("messages[%d]", i), tc, false)
 		}
+	}
+}
+
+// findLastTurnStart 返回"最近一轮"在 messages 数组中的起始下标。
+// 定义:最近一轮 = 倒数第二个 role=="user" 消息**之后**的所有消息(含尾)。
+// 例:
+//   [u1,a1,u2,a2,u3] → 起点 = u2 之后 = [a2,u3]
+//   [u1,a1,u2,a2]    → 起点 = u1 之后 = [a1,u2,a2]
+//   [u1]             → 起点 = 0(只有一条 user,全部保留)
+//   []               → 0
+// 这样既保留了"最近一次问答的 assistant 上下文",又不会把更早的历史带进来。
+func findLastTurnStart(msgs []any) int {
+	userIdxs := make([]int, 0, 2)
+	for i, msg := range msgs {
+		m, ok := msg.(map[string]any)
+		if !ok {
+			continue
+		}
+		if r, _ := m["role"].(string); r == "user" {
+			userIdxs = append(userIdxs, i)
+		}
+	}
+	if len(userIdxs) < 2 {
+		return 0
+	}
+	return userIdxs[len(userIdxs)-2] + 1
+}
+
+// aggregateHistoricalMessages 把 msgs[:end] 视为历史轮次,聚合为一条 system 占位消息,
+// 把 role 计数 + block 类型分布(text / tool_use / tool_result / thinking 等)汇总成
+// 单条字符串,避免逐条保留 N 个 elided 占位带来的视觉/字节噪音。
+// 返回 nil 表示没有历史消息(end<=0)。
+// anthropic=true 时生成 Anthropic 结构({"role":"system","content":"..."}),
+// false 时生成 OpenAI 结构(同样使用 system role)。
+func aggregateHistoricalMessages(msgs []any, end int, anthropic bool, tc *truncCtx) map[string]any {
+	if end <= 0 {
+		return nil
+	}
+	userCount, assistantCount, otherCount := 0, 0, 0
+	blockTypes := map[string]int{}
+	textMessages := 0
+	for i := 0; i < end; i++ {
+		m, ok := msgs[i].(map[string]any)
+		if !ok {
+			continue
+		}
+		stripCacheControl(m, tc)
+		role, _ := m["role"].(string)
+		switch role {
+		case "user":
+			userCount++
+		case "assistant":
+			assistantCount++
+		default:
+			otherCount++
+		}
+		switch c := m["content"].(type) {
+		case string:
+			if c != "" {
+				textMessages++
+			}
+		case []any:
+			for _, blk := range c {
+				bm, ok := blk.(map[string]any)
+				if !ok {
+					continue
+				}
+				t, _ := bm["type"].(string)
+				if t == "" {
+					t = "unknown"
+				}
+				blockTypes[t]++
+			}
+		}
+		tc.historicalMessagesElided++
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "<historical %d message(s) elided: ", end)
+	parts := make([]string, 0, 4)
+	if userCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d user", userCount))
+	}
+	if assistantCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d assistant", assistantCount))
+	}
+	if otherCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d other", otherCount))
+	}
+	b.WriteString(strings.Join(parts, ", "))
+	if textMessages > 0 || len(blockTypes) > 0 {
+		b.WriteString("; blocks: ")
+		blockParts := make([]string, 0, len(blockTypes)+1)
+		if textMessages > 0 {
+			blockParts = append(blockParts, fmt.Sprintf("%d text-message", textMessages))
+		}
+		// 稳定顺序:按 key 排序
+		keys := make([]string, 0, len(blockTypes))
+		for k := range blockTypes {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			blockParts = append(blockParts, fmt.Sprintf("%d %s", blockTypes[k], k))
+		}
+		b.WriteString(strings.Join(blockParts, ", "))
+	}
+	b.WriteString(">")
+
+	_ = anthropic // 当前两侧都使用 role=system 字符串 content;预留分歧时使用
+	return map[string]any{
+		"role":    "system",
+		"content": b.String(),
 	}
 }
 
@@ -486,14 +611,25 @@ func truncateOpenAIRequest(root any, tc *truncCtx) {
 	}
 
 	if msgs, ok := m["messages"].([]any); ok {
-		total := len(msgs)
+		lastTurnStart := findLastTurnStart(msgs)
+		if summary := aggregateHistoricalMessages(msgs, lastTurnStart, false, tc); summary != nil {
+			recent := msgs[lastTurnStart:]
+			merged := make([]any, 0, len(recent)+1)
+			merged = append(merged, summary)
+			merged = append(merged, recent...)
+			msgs = merged
+			m["messages"] = msgs
+			lastTurnStart = 1
+		}
 		for i, msg := range msgs {
+			if i < lastTurnStart {
+				continue
+			}
 			msgMap, ok := msg.(map[string]any)
 			if !ok {
 				continue
 			}
-			isHistorical := total-i > debugLogRecentMessagesKept
-			truncateOpenAIMessage(msgMap, fmt.Sprintf("messages[%d]", i), tc, isHistorical)
+			truncateOpenAIMessage(msgMap, fmt.Sprintf("messages[%d]", i), tc, false)
 		}
 	}
 
