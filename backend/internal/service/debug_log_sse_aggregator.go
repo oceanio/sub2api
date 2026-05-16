@@ -6,8 +6,9 @@ import (
 	"errors"
 	"strings"
 
-	// sonic 用于加速 SSE 事件 JSON 解析，drop-in 替代 encoding/json。
-	json "github.com/bytedance/sonic"
+	// sonic 用于加速 SSE 事件 JSON 解析，drop-in 替代 encoding/json 的
+	// Marshal/Unmarshal（debug-log 内部使用，主链路仍用 encoding/json）。
+	sonic "github.com/bytedance/sonic"
 )
 
 // DebugLogProtocol identifies the upstream protocol of a captured response,
@@ -128,7 +129,7 @@ func (a *anthropicAggregator) feed(evt sseEvent) {
 		return
 	}
 	var obj map[string]any
-	if err := json.Unmarshal(evt.data, &obj); err != nil {
+	if err := sonic.Unmarshal(evt.data, &obj); err != nil {
 		return
 	}
 	t, _ := obj["type"].(string)
@@ -214,7 +215,7 @@ func (a *anthropicAggregator) finalize() ([]byte, error) {
 		return nil, errors.New("anthropic sse: no message_start event")
 	}
 	a.message["content"] = a.blocks
-	return json.Marshal(a.message)
+	return sonic.Marshal(a.message)
 }
 
 // ===== OpenAI aggregator =====
@@ -237,7 +238,7 @@ func (a *openAIAggregator) feed(evt sseEvent) {
 		return
 	}
 	var chunk map[string]any
-	if err := json.Unmarshal(evt.data, &chunk); err != nil {
+	if err := sonic.Unmarshal(evt.data, &chunk); err != nil {
 		return
 	}
 	if a.completion == nil {
@@ -315,7 +316,7 @@ func (a *openAIAggregator) finalize() ([]byte, error) {
 		}
 	}
 	a.completion["choices"] = out
-	return json.Marshal(a.completion)
+	return sonic.Marshal(a.completion)
 }
 
 // ===== helpers =====

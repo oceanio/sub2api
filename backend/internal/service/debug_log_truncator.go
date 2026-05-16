@@ -1,15 +1,17 @@
 package service
 
 import (
+	"encoding/json" // 仅用于 json.RawMessage 类型；sonic 兼容该类型
 	"fmt"
 	"sort"
 	"strings"
 	"unicode/utf8"
 
-	// sonic 是 bytedance JIT 加速的 JSON 库，drop-in 替代 encoding/json。
-	// 仅在 debug-log 路径使用，主链路（usage 解析等）仍用 encoding/json。
-	// debug-log 对 JSON 没有强语义要求（本来就允许有损截断），适合放宽。
-	json "github.com/bytedance/sonic"
+	// sonic 是 bytedance JIT 加速的 JSON 库，drop-in 替代 encoding/json
+	// 的 Marshal/Unmarshal。仅在 debug-log 路径使用，主链路（usage 解析等）
+	// 仍用 encoding/json。debug-log 对 JSON 没有强语义要求（本来就允许有损
+	// 截断），适合放宽。
+	sonic "github.com/bytedance/sonic"
 )
 
 // 字段级截断默认阈值。所有阈值都按 UTF-8 字节算。
@@ -86,55 +88,413 @@ type truncCtx struct {
 // SmartTruncate 解析 JSON body,按协议做字段级截断,返回新的 JSON 字节 + 截断记录。
 //
 // 如果 body 不是合法 JSON,返回 ok=false,调用方走原始字节兜底。
+//
+// 实现策略（D2 分层解析）：
+//   - 请求侧：顶层用 map[string]json.RawMessage 浅层接收，避免把整个 body
+//     爆成 map[string]any 树（1MB JSON 在该结构下膨胀 3-5x）。messages 数组
+//     逐条 RawMessage：历史轮次只解析 role/content.type 做统计后整段丢弃；
+//     最近一轮才完整 Unmarshal 到 map[string]any 改写。tools 数组只取 name。
+//   - 响应侧：通常是单条 final message，结构简单，保持原 map[string]any 路径。
 func SmartTruncate(body []byte, protocol DebugLogProtocol, side debugLogSide, info *TruncationInfo) (out []byte, ok bool) {
 	if len(body) == 0 {
 		return body, true
 	}
-	var root any
-	if err := json.Unmarshal(body, &root); err != nil {
-		return body, false
-	}
 
 	tc := &truncCtx{}
 
+	// 请求侧走 D2 lazy 路径
+	if side == debugLogSideRequest {
+		switch protocol {
+		case DebugLogProtocolAnthropic, DebugLogProtocolOpenAI:
+			out, ok = truncateRequestLazy(body, protocol, tc)
+			if !ok {
+				return body, false
+			}
+			mergeTruncCtx(info, tc, side)
+			return out, true
+		default:
+			return body, false
+		}
+	}
+
+	// 响应侧仍走原 map[string]any 路径
+	var root any
+	if err := sonic.Unmarshal(body, &root); err != nil {
+		return body, false
+	}
+
 	switch protocol {
 	case DebugLogProtocolAnthropic:
-		if side == debugLogSideRequest {
-			truncateAnthropicRequest(root, tc)
-		} else {
-			truncateAnthropicResponse(root, tc)
-		}
+		truncateAnthropicResponse(root, tc)
 	case DebugLogProtocolOpenAI:
-		if side == debugLogSideRequest {
-			truncateOpenAIRequest(root, tc)
-		} else {
-			truncateOpenAIResponse(root, tc)
-		}
+		truncateOpenAIResponse(root, tc)
 	default:
 		return body, false
 	}
 
-	if info != nil {
-		if side == debugLogSideRequest {
-			info.Request = append(info.Request, tc.cuts...)
-		} else {
-			info.Response = append(info.Response, tc.cuts...)
-		}
-		info.ImagesStripped += tc.stripped
-		info.ToolResultsCut += tc.toolResults
-		info.ToolResultsElided += tc.toolResultsElided
-		info.HistoricalMessagesElided += tc.historicalMessagesElided
-		info.ToolsSimplified += tc.toolsSimplified
-		info.ToolsBytesSaved += tc.toolsBytesSaved
-		info.SignaturesStripped += tc.signaturesStripped
-		info.CacheControlStripped += tc.cacheControlStripped
-	}
+	mergeTruncCtx(info, tc, side)
 
-	out, err := json.Marshal(root)
+	out, err := sonic.Marshal(root)
 	if err != nil {
 		return body, false
 	}
 	return out, true
+}
+
+// mergeTruncCtx 把单次 SmartTruncate 收集到的 truncCtx 累加到外部 TruncationInfo。
+func mergeTruncCtx(info *TruncationInfo, tc *truncCtx, side debugLogSide) {
+	if info == nil {
+		return
+	}
+	if side == debugLogSideRequest {
+		info.Request = append(info.Request, tc.cuts...)
+	} else {
+		info.Response = append(info.Response, tc.cuts...)
+	}
+	info.ImagesStripped += tc.stripped
+	info.ToolResultsCut += tc.toolResults
+	info.ToolResultsElided += tc.toolResultsElided
+	info.HistoricalMessagesElided += tc.historicalMessagesElided
+	info.ToolsSimplified += tc.toolsSimplified
+	info.ToolsBytesSaved += tc.toolsBytesSaved
+	info.SignaturesStripped += tc.signaturesStripped
+	info.CacheControlStripped += tc.cacheControlStripped
+}
+
+// truncateRequestLazy 是请求侧的 D2 入口：
+//  1. 顶层用 map[string]json.RawMessage 接收，非 messages/tools/system/instructions/input
+//     的字段零开销原样保留（[]byte 切片透传，不进 map[string]any 树）。
+//  2. messages 数组逐条用 RawMessage 接收，浅层取 role 算出 lastTurnStart。
+//  3. 历史消息只浅层解析 role/content 类型做统计；最近一轮才完整 Unmarshal。
+//  4. tools 只解析每个元素的 name 字段，schema/description 不进入 map。
+func truncateRequestLazy(body []byte, protocol DebugLogProtocol, tc *truncCtx) ([]byte, bool) {
+	var top map[string]json.RawMessage
+	if err := sonic.Unmarshal(body, &top); err != nil {
+		return nil, false
+	}
+
+	// system / instructions
+	if protocol == DebugLogProtocolAnthropic {
+		if raw, ok := top["system"]; ok && len(raw) > 0 {
+			var sys any
+			if err := sonic.Unmarshal(raw, &sys); err == nil {
+				newSys := truncateAnthropicSystem(sys, tc)
+				if b, err := sonic.Marshal(newSys); err == nil {
+					top["system"] = b
+				}
+			}
+		}
+	} else {
+		// OpenAI: system / instructions 都是字符串
+		if raw, ok := top["system"]; ok && len(raw) > 0 {
+			var s string
+			if err := sonic.Unmarshal(raw, &s); err == nil {
+				ns := truncateText(s, debugLogFieldTextLimit, "system", tc)
+				if b, err := sonic.Marshal(ns); err == nil {
+					top["system"] = b
+				}
+			}
+		}
+		if raw, ok := top["instructions"]; ok && len(raw) > 0 {
+			var s string
+			if err := sonic.Unmarshal(raw, &s); err == nil {
+				ns := truncateText(s, debugLogFieldTextLimit, "instructions", tc)
+				if b, err := sonic.Marshal(ns); err == nil {
+					top["instructions"] = b
+				}
+			}
+		}
+	}
+
+	// tools: 只解析每个元素的 name，schema/description 完全跳过
+	if raw, ok := top["tools"]; ok && len(raw) > 0 {
+		if simplified, ok := simplifyToolsLazy(raw, protocol, tc); ok {
+			top["tools"] = simplified
+		}
+	}
+
+	// messages（最大头）
+	if raw, ok := top["messages"]; ok && len(raw) > 0 {
+		if newMsgs, ok := truncateMessagesLazy(raw, protocol, tc); ok {
+			top["messages"] = newMsgs
+		}
+	}
+
+	// OpenAI Responses API: input
+	if protocol == DebugLogProtocolOpenAI {
+		if raw, ok := top["input"]; ok && len(raw) > 0 {
+			if newInput, ok := truncateOpenAIInputLazy(raw, tc); ok {
+				top["input"] = newInput
+			}
+		}
+	}
+
+	out, err := sonic.Marshal(top)
+	if err != nil {
+		return nil, false
+	}
+	return out, true
+}
+
+// simplifyToolsLazy 只解析每个 tool 元素的 name 字段，生成 ["name1", ...]。
+// 整个 tool 的 schema/description 不进入 map[string]any，省 90%+ 解析量。
+func simplifyToolsLazy(raw json.RawMessage, protocol DebugLogProtocol, tc *truncCtx) (json.RawMessage, bool) {
+	var tools []json.RawMessage
+	if err := sonic.Unmarshal(raw, &tools); err != nil || len(tools) == 0 {
+		return nil, false
+	}
+	names := make([]string, len(tools))
+	for i, t := range tools {
+		names[i] = extractToolNameLazy(t, protocol)
+		if names[i] == "" {
+			names[i] = "<unnamed>"
+		}
+	}
+	simplified, err := sonic.Marshal(names)
+	if err != nil {
+		return nil, false
+	}
+	tc.toolsSimplified += len(tools)
+	if saved := len(raw) - len(simplified); saved > 0 {
+		tc.toolsBytesSaved += saved
+	}
+	return simplified, true
+}
+
+// extractToolNameLazy 浅层提取 tool 的 name，不解析 schema/description。
+func extractToolNameLazy(raw json.RawMessage, protocol DebugLogProtocol) string {
+	if protocol == DebugLogProtocolAnthropic {
+		var t struct {
+			Name string `json:"name"`
+		}
+		_ = sonic.Unmarshal(raw, &t)
+		return t.Name
+	}
+	// OpenAI: chat.completions {type:"function", function:{name}} 或
+	// Responses API {type, name}
+	var t struct {
+		Name     string `json:"name"`
+		Type     string `json:"type"`
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function"`
+	}
+	_ = sonic.Unmarshal(raw, &t)
+	if t.Function.Name != "" {
+		return t.Function.Name
+	}
+	if t.Name != "" {
+		return t.Name
+	}
+	return t.Type
+}
+
+// truncateMessagesLazy 是 D2 的核心收益点：
+// 历史消息只浅层提取 role/content 做统计后整段丢弃（聚合成一条占位）；
+// 最近一轮才完整 Unmarshal 到 map[string]any 走原 truncateXxxMessageContent。
+func truncateMessagesLazy(raw json.RawMessage, protocol DebugLogProtocol, tc *truncCtx) (json.RawMessage, bool) {
+	var msgs []json.RawMessage
+	if err := sonic.Unmarshal(raw, &msgs); err != nil {
+		return nil, false
+	}
+	if len(msgs) == 0 {
+		return raw, true
+	}
+
+	// 浅层取每条 role 找 lastTurnStart
+	roles := make([]string, len(msgs))
+	for i, m := range msgs {
+		var named struct {
+			Role string `json:"role"`
+		}
+		_ = sonic.Unmarshal(m, &named)
+		roles[i] = named.Role
+	}
+	lastTurnStart := findLastTurnStartFromRoles(roles)
+
+	// 输出 = 历史聚合占位 + 最近一轮逐条改写
+	newMsgs := make([]json.RawMessage, 0, len(msgs)-lastTurnStart+1)
+
+	if lastTurnStart > 0 {
+		summary := aggregateHistoricalMessagesLazy(msgs[:lastTurnStart], tc)
+		if summary != nil {
+			if b, err := sonic.Marshal(summary); err == nil {
+				newMsgs = append(newMsgs, b)
+			}
+		}
+	}
+
+	for i := lastTurnStart; i < len(msgs); i++ {
+		var msgMap map[string]any
+		if err := sonic.Unmarshal(msgs[i], &msgMap); err != nil {
+			newMsgs = append(newMsgs, msgs[i])
+			continue
+		}
+		path := fmt.Sprintf("messages[%d]", i)
+		switch protocol {
+		case DebugLogProtocolAnthropic:
+			truncateAnthropicMessageContent(msgMap, path, tc, false)
+		case DebugLogProtocolOpenAI:
+			truncateOpenAIMessage(msgMap, path, tc, false)
+		}
+		if b, err := sonic.Marshal(msgMap); err == nil {
+			newMsgs = append(newMsgs, b)
+		} else {
+			newMsgs = append(newMsgs, msgs[i])
+		}
+	}
+
+	out, err := sonic.Marshal(newMsgs)
+	if err != nil {
+		return nil, false
+	}
+	return out, true
+}
+
+// findLastTurnStartFromRoles 用浅层 role 数组定位最近一轮起点。
+// 语义与 findLastTurnStart 一致：倒数第二个 user 之后。
+func findLastTurnStartFromRoles(roles []string) int {
+	userIdxs := make([]int, 0, 2)
+	for i, r := range roles {
+		if r == "user" {
+			userIdxs = append(userIdxs, i)
+		}
+	}
+	if len(userIdxs) < 2 {
+		return 0
+	}
+	return userIdxs[len(userIdxs)-2] + 1
+}
+
+// aggregateHistoricalMessagesLazy 对每条历史消息只做浅层解析：role + content
+// 的类型分布（string 或 block array 的 type 计数），不深入 content 内部文本/
+// 图片字节，输出与 aggregateHistoricalMessages 格式一致的占位消息。
+func aggregateHistoricalMessagesLazy(msgs []json.RawMessage, tc *truncCtx) map[string]any {
+	if len(msgs) == 0 {
+		return nil
+	}
+	userCount, assistantCount, otherCount := 0, 0, 0
+	blockTypes := map[string]int{}
+	textMessages := 0
+	for _, raw := range msgs {
+		var shallow struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		}
+		if err := sonic.Unmarshal(raw, &shallow); err != nil {
+			otherCount++
+			tc.historicalMessagesElided++
+			continue
+		}
+		switch shallow.Role {
+		case "user":
+			userCount++
+		case "assistant":
+			assistantCount++
+		default:
+			otherCount++
+		}
+		if len(shallow.Content) > 0 {
+			var s string
+			if err := sonic.Unmarshal(shallow.Content, &s); err == nil {
+				if s != "" {
+					textMessages++
+				}
+			} else {
+				var blocks []json.RawMessage
+				if err := sonic.Unmarshal(shallow.Content, &blocks); err == nil {
+					for _, blk := range blocks {
+						var typed struct {
+							Type string `json:"type"`
+						}
+						_ = sonic.Unmarshal(blk, &typed)
+						t := typed.Type
+						if t == "" {
+							t = "unknown"
+						}
+						blockTypes[t]++
+					}
+				}
+			}
+		}
+		tc.historicalMessagesElided++
+	}
+	return renderHistoricalSummary(len(msgs), userCount, assistantCount, otherCount, textMessages, blockTypes)
+}
+
+// renderHistoricalSummary 渲染聚合占位消息，与 aggregateHistoricalMessages
+// 输出格式保持一致以便前端兼容。
+func renderHistoricalSummary(total, userCount, assistantCount, otherCount, textMessages int, blockTypes map[string]int) map[string]any {
+	var b strings.Builder
+	fmt.Fprintf(&b, "<historical %d message(s) elided: ", total)
+	parts := make([]string, 0, 4)
+	if userCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d user", userCount))
+	}
+	if assistantCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d assistant", assistantCount))
+	}
+	if otherCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d other", otherCount))
+	}
+	b.WriteString(strings.Join(parts, ", "))
+	if textMessages > 0 || len(blockTypes) > 0 {
+		b.WriteString("; blocks: ")
+		blockParts := make([]string, 0, len(blockTypes)+1)
+		if textMessages > 0 {
+			blockParts = append(blockParts, fmt.Sprintf("%d text-message", textMessages))
+		}
+		keys := make([]string, 0, len(blockTypes))
+		for k := range blockTypes {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			blockParts = append(blockParts, fmt.Sprintf("%d %s", blockTypes[k], k))
+		}
+		b.WriteString(strings.Join(blockParts, ", "))
+	}
+	b.WriteString(">")
+	return map[string]any{
+		"role":    "system",
+		"content": b.String(),
+	}
+}
+
+// truncateOpenAIInputLazy 处理 Responses API 的 input：string 或数组。
+// 数组元素结构同 messages，复用 truncateOpenAIMessage。
+func truncateOpenAIInputLazy(raw json.RawMessage, tc *truncCtx) (json.RawMessage, bool) {
+	var s string
+	if err := sonic.Unmarshal(raw, &s); err == nil {
+		ns := truncateText(s, debugLogFieldTextLimit, "input", tc)
+		if b, err := sonic.Marshal(ns); err == nil {
+			return b, true
+		}
+		return nil, false
+	}
+	var arr []json.RawMessage
+	if err := sonic.Unmarshal(raw, &arr); err != nil {
+		return nil, false
+	}
+	out := make([]json.RawMessage, len(arr))
+	for i, item := range arr {
+		var m map[string]any
+		if err := sonic.Unmarshal(item, &m); err != nil {
+			out[i] = item
+			continue
+		}
+		truncateOpenAIMessage(m, fmt.Sprintf("input[%d]", i), tc, false)
+		if b, err := sonic.Marshal(m); err == nil {
+			out[i] = b
+		} else {
+			out[i] = item
+		}
+	}
+	b, err := sonic.Marshal(out)
+	if err != nil {
+		return nil, false
+	}
+	return b, true
 }
 
 // truncateText 对一个字符串字段做截断,返回新字符串。
@@ -198,162 +558,6 @@ func safeStart(s string, start int) int {
 
 // ===== Anthropic =====
 
-// truncateAnthropicRequest 处理 /v1/messages 请求体。
-// 顶层结构:{ system, messages: [{role, content}], tools, ... }
-func truncateAnthropicRequest(root any, tc *truncCtx) {
-	m, ok := root.(map[string]any)
-	if !ok {
-		return
-	}
-
-	// system: 可能是 string 或 [{type:"text", text}]
-	if sys, exists := m["system"]; exists {
-		m["system"] = truncateAnthropicSystem(sys, tc)
-	}
-
-	// tools: 简化为 name 字符串数组,description / input_schema 全砍
-	if tools, ok := m["tools"].([]any); ok && len(tools) > 0 {
-		m["tools"] = simplifyToolsToNames(tools, anthropicToolName, tc)
-	}
-
-	// messages
-	if msgs, ok := m["messages"].([]any); ok {
-		lastTurnStart := findLastTurnStart(msgs)
-		if summary := aggregateHistoricalMessages(msgs, lastTurnStart, true, tc); summary != nil {
-			recent := msgs[lastTurnStart:]
-			merged := make([]any, 0, len(recent)+1)
-			merged = append(merged, summary)
-			merged = append(merged, recent...)
-			msgs = merged
-			m["messages"] = msgs
-			lastTurnStart = 1
-		}
-		for i, msg := range msgs {
-			if i < lastTurnStart {
-				continue
-			}
-			msgMap, ok := msg.(map[string]any)
-			if !ok {
-				continue
-			}
-			truncateAnthropicMessageContent(msgMap, fmt.Sprintf("messages[%d]", i), tc, false)
-		}
-	}
-}
-
-// findLastTurnStart 返回"最近一轮"在 messages 数组中的起始下标。
-// 定义:最近一轮 = 倒数第二个 role=="user" 消息**之后**的所有消息(含尾)。
-// 例:
-//   [u1,a1,u2,a2,u3] → 起点 = u2 之后 = [a2,u3]
-//   [u1,a1,u2,a2]    → 起点 = u1 之后 = [a1,u2,a2]
-//   [u1]             → 起点 = 0(只有一条 user,全部保留)
-//   []               → 0
-// 这样既保留了"最近一次问答的 assistant 上下文",又不会把更早的历史带进来。
-func findLastTurnStart(msgs []any) int {
-	userIdxs := make([]int, 0, 2)
-	for i, msg := range msgs {
-		m, ok := msg.(map[string]any)
-		if !ok {
-			continue
-		}
-		if r, _ := m["role"].(string); r == "user" {
-			userIdxs = append(userIdxs, i)
-		}
-	}
-	if len(userIdxs) < 2 {
-		return 0
-	}
-	return userIdxs[len(userIdxs)-2] + 1
-}
-
-// aggregateHistoricalMessages 把 msgs[:end] 视为历史轮次,聚合为一条 system 占位消息,
-// 把 role 计数 + block 类型分布(text / tool_use / tool_result / thinking 等)汇总成
-// 单条字符串,避免逐条保留 N 个 elided 占位带来的视觉/字节噪音。
-// 返回 nil 表示没有历史消息(end<=0)。
-// anthropic=true 时生成 Anthropic 结构({"role":"system","content":"..."}),
-// false 时生成 OpenAI 结构(同样使用 system role)。
-func aggregateHistoricalMessages(msgs []any, end int, anthropic bool, tc *truncCtx) map[string]any {
-	if end <= 0 {
-		return nil
-	}
-	userCount, assistantCount, otherCount := 0, 0, 0
-	blockTypes := map[string]int{}
-	textMessages := 0
-	for i := 0; i < end; i++ {
-		m, ok := msgs[i].(map[string]any)
-		if !ok {
-			continue
-		}
-		stripCacheControl(m, tc)
-		role, _ := m["role"].(string)
-		switch role {
-		case "user":
-			userCount++
-		case "assistant":
-			assistantCount++
-		default:
-			otherCount++
-		}
-		switch c := m["content"].(type) {
-		case string:
-			if c != "" {
-				textMessages++
-			}
-		case []any:
-			for _, blk := range c {
-				bm, ok := blk.(map[string]any)
-				if !ok {
-					continue
-				}
-				t, _ := bm["type"].(string)
-				if t == "" {
-					t = "unknown"
-				}
-				blockTypes[t]++
-			}
-		}
-		tc.historicalMessagesElided++
-	}
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "<historical %d message(s) elided: ", end)
-	parts := make([]string, 0, 4)
-	if userCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d user", userCount))
-	}
-	if assistantCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d assistant", assistantCount))
-	}
-	if otherCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d other", otherCount))
-	}
-	b.WriteString(strings.Join(parts, ", "))
-	if textMessages > 0 || len(blockTypes) > 0 {
-		b.WriteString("; blocks: ")
-		blockParts := make([]string, 0, len(blockTypes)+1)
-		if textMessages > 0 {
-			blockParts = append(blockParts, fmt.Sprintf("%d text-message", textMessages))
-		}
-		// 稳定顺序:按 key 排序
-		keys := make([]string, 0, len(blockTypes))
-		for k := range blockTypes {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			blockParts = append(blockParts, fmt.Sprintf("%d %s", blockTypes[k], k))
-		}
-		b.WriteString(strings.Join(blockParts, ", "))
-	}
-	b.WriteString(">")
-
-	_ = anthropic // 当前两侧都使用 role=system 字符串 content;预留分歧时使用
-	return map[string]any{
-		"role":    "system",
-		"content": b.String(),
-	}
-}
-
 // stripCacheControl 删除 message / content block / system 块上的 cache_control 标记。
 // 调试日志无需关心客户端的缓存策略。
 func stripCacheControl(m map[string]any, tc *truncCtx) {
@@ -361,59 +565,6 @@ func stripCacheControl(m map[string]any, tc *truncCtx) {
 		delete(m, "cache_control")
 		tc.cacheControlStripped++
 	}
-}
-
-// simplifyToolsToNames 把 tools 数组压缩成 ["name1", "name2", ...] 字符串数组。
-// 调试日志只需要知道当时哪些工具可用,description/schema 几乎用不上但占用大头。
-// extract 用于按协议从单个 tool 对象里取名字(Anthropic 是 tool.name,
-// OpenAI chat.completions 是 tool.function.name)。
-func simplifyToolsToNames(tools []any, extract func(any) string, tc *truncCtx) []any {
-	original, _ := json.Marshal(tools)
-	names := make([]any, 0, len(tools))
-	for _, t := range tools {
-		name := extract(t)
-		if name == "" {
-			name = "<unnamed>"
-		}
-		names = append(names, name)
-	}
-	simplified, _ := json.Marshal(names)
-	tc.toolsSimplified += len(tools)
-	if saved := len(original) - len(simplified); saved > 0 {
-		tc.toolsBytesSaved += saved
-	}
-	return names
-}
-
-func anthropicToolName(t any) string {
-	m, ok := t.(map[string]any)
-	if !ok {
-		return ""
-	}
-	name, _ := m["name"].(string)
-	return name
-}
-
-func openAIToolName(t any) string {
-	m, ok := t.(map[string]any)
-	if !ok {
-		return ""
-	}
-	// chat.completions: {type:"function", function:{name, parameters, ...}}
-	if fn, ok := m["function"].(map[string]any); ok {
-		if name, ok := fn["name"].(string); ok && name != "" {
-			return name
-		}
-	}
-	// Responses API: 顶层直接是 {type:"function"|"web_search"|..., name?}
-	if name, ok := m["name"].(string); ok && name != "" {
-		return name
-	}
-	// 内置工具(web_search / code_interpreter 等)无 name,用 type 兜底
-	if typ, ok := m["type"].(string); ok && typ != "" {
-		return typ
-	}
-	return ""
 }
 
 // truncateAnthropicResponse 处理 /v1/messages 响应体(已聚合的最终 message)。
@@ -506,7 +657,7 @@ func truncateAnthropicToolUseInput(blk map[string]any, path string, tc *truncCtx
 	// 流式聚合产物:partial_json 字符串。能 parse 回对象就替换 input,失败保持字符串截断
 	if pj, ok := blk["partial_json"].(string); ok {
 		var parsed any
-		if err := json.Unmarshal([]byte(pj), &parsed); err == nil {
+		if err := sonic.Unmarshal([]byte(pj), &parsed); err == nil {
 			blk["input"] = parsed
 			delete(blk, "partial_json")
 		} else {
@@ -591,57 +742,6 @@ func truncateAnthropicToolResult(blk map[string]any, path string, tc *truncCtx, 
 }
 
 // ===== OpenAI =====
-
-// truncateOpenAIRequest 处理 chat.completions / responses 两种请求体。
-// chat.completions:{ messages: [{role, content, tool_calls}], ... }
-// responses:{ input: ..., instructions, ... }
-func truncateOpenAIRequest(root any, tc *truncCtx) {
-	m, ok := root.(map[string]any)
-	if !ok {
-		return
-	}
-
-	// chat.completions 的 system 偶尔是顶层 system 字段
-	if sys, ok := m["system"].(string); ok {
-		m["system"] = truncateText(sys, debugLogFieldTextLimit, "system", tc)
-	}
-	if instr, ok := m["instructions"].(string); ok {
-		m["instructions"] = truncateText(instr, debugLogFieldTextLimit, "instructions", tc)
-	}
-
-	// tools: 简化为 name 字符串数组
-	if tools, ok := m["tools"].([]any); ok && len(tools) > 0 {
-		m["tools"] = simplifyToolsToNames(tools, openAIToolName, tc)
-	}
-
-	if msgs, ok := m["messages"].([]any); ok {
-		lastTurnStart := findLastTurnStart(msgs)
-		if summary := aggregateHistoricalMessages(msgs, lastTurnStart, false, tc); summary != nil {
-			recent := msgs[lastTurnStart:]
-			merged := make([]any, 0, len(recent)+1)
-			merged = append(merged, summary)
-			merged = append(merged, recent...)
-			msgs = merged
-			m["messages"] = msgs
-			lastTurnStart = 1
-		}
-		for i, msg := range msgs {
-			if i < lastTurnStart {
-				continue
-			}
-			msgMap, ok := msg.(map[string]any)
-			if !ok {
-				continue
-			}
-			truncateOpenAIMessage(msgMap, fmt.Sprintf("messages[%d]", i), tc, false)
-		}
-	}
-
-	// Responses API: input 可能是 string 或数组
-	if input, ok := m["input"]; ok {
-		m["input"] = truncateOpenAIInput(input, "input", tc)
-	}
-}
 
 // truncateOpenAIResponse 处理 chat.completion / response 响应体。
 func truncateOpenAIResponse(root any, tc *truncCtx) {
@@ -753,18 +853,3 @@ func truncateOpenAIMessage(msg map[string]any, prefix string, tc *truncCtx, isHi
 	}
 }
 
-func truncateOpenAIInput(input any, prefix string, tc *truncCtx) any {
-	switch v := input.(type) {
-	case string:
-		return truncateText(v, debugLogFieldTextLimit, prefix, tc)
-	case []any:
-		for i, item := range v {
-			sub, ok := item.(map[string]any)
-			if !ok {
-				continue
-			}
-			truncateOpenAIMessage(sub, fmt.Sprintf("%s[%d]", prefix, i), tc, false)
-		}
-	}
-	return input
-}
