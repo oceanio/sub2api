@@ -182,6 +182,12 @@ func (s *RequestDebugLogService) BuildEntry(
 ) *RequestDebugLog {
 	redact := s.settingService.IsDebugRequestLogRedactHeaders(ctx)
 	ttl := s.settingService.GetDebugRequestLogTTL(ctx)
+	// bodyLimit 是用户在 settings 配置的 body 字节硬上限；0 = 不截断（使用 1MB 默认硬上限）。
+	// 配置值再大也不超过 debugLogMaxBodyBytes，避免单条日志撑爆 batch。
+	bodyLimit := s.settingService.GetDebugRequestLogBodyLimit(ctx)
+	if bodyLimit <= 0 || bodyLimit > debugLogMaxBodyBytes {
+		bodyLimit = debugLogMaxBodyBytes
+	}
 	now := time.Now()
 
 	entry := &RequestDebugLog{
@@ -214,12 +220,12 @@ func (s *RequestDebugLogService) BuildEntry(
 	originalLen := len(requestBody) + len(responseBody)
 	entry.BodyBytes = originalLen
 
-	captureTrunc := len(responseBody) >= debugLogMaxBodyBytes
+	captureTrunc := len(responseBody) >= bodyLimit
 	info := &TruncationInfo{}
 
 	// 请求体:走字段级智能截断;失败兜底到 request_text
 	if len(requestBody) > 0 {
-		applyBodyToEntry(requestBody, protocol, debugLogSideRequest, info, entry, false)
+		applyBodyToEntry(requestBody, protocol, debugLogSideRequest, info, entry, false, bodyLimit)
 	}
 
 	// 流式响应:先尝试 SSE 聚合;失败标记 AggregationFailed,后续走原始字节
@@ -238,9 +244,9 @@ func (s *RequestDebugLogService) BuildEntry(
 	case len(responseBody) > 0:
 		// 聚合失败(原始 SSE)走字节兜底,不尝试 SmartTruncate
 		forceText := stream && !streamAggregated
-		applyBodyToEntry(responseBody, protocol, debugLogSideResponse, info, entry, forceText)
+		applyBodyToEntry(responseBody, protocol, debugLogSideResponse, info, entry, forceText, bodyLimit)
 	case responseText != "":
-		t, _ := TruncateBody([]byte(responseText), 0, debugLogMaxBodyBytes)
+		t, _ := TruncateBody([]byte(responseText), 0, bodyLimit)
 		entry.ResponseText = string(t)
 	}
 
@@ -264,7 +270,8 @@ const smartTruncateMinBytes = 32 * 1024
 // applyBodyToEntry 对一段 body(请求或响应)做"字段级智能截断 + 字节硬上限兜底",
 // 把结果写到 entry 的对应字段。
 // forceText=true 表示已知不是 JSON(如流式聚合失败),直接走字节硬截 + Text 列。
-func applyBodyToEntry(body []byte, protocol DebugLogProtocol, side debugLogSide, info *TruncationInfo, entry *RequestDebugLog, forceText bool) {
+// bodyLimit 是字节硬上限（来自 settings.debug_request_log_body_limit_bytes）。
+func applyBodyToEntry(body []byte, protocol DebugLogProtocol, side debugLogSide, info *TruncationInfo, entry *RequestDebugLog, forceText bool, bodyLimit int) {
 	assign := func(jsonBody json.RawMessage, text string) {
 		if side == debugLogSideRequest {
 			entry.RequestBody = jsonBody
@@ -280,20 +287,21 @@ func applyBodyToEntry(body []byte, protocol DebugLogProtocol, side debugLogSide,
 	}
 
 	if forceText {
-		t, _ := TruncateBody(body, 0, debugLogMaxBodyBytes)
+		t, _ := TruncateBody(body, 0, bodyLimit)
 		assign(nil, string(t))
 		return
 	}
 
 	// 小 body 早返回：跳过 SmartTruncate 的 Unmarshal/遍历/Marshal 三步走。
+	// 仅当 body 同时小于 SmartTruncate 阈值 *和* 用户配置上限时直接原样存。
 	// JSON 校验在 PG JSONB 列入库时也会做，但这里先在应用层校验避免无谓的入库失败。
-	if len(body) < smartTruncateMinBytes {
+	if len(body) < smartTruncateMinBytes && len(body) <= bodyLimit {
 		if json.Valid(body) {
 			assign(json.RawMessage(body), "")
 			return
 		}
 		// 非 JSON 走文本兜底
-		t, _ := TruncateBody(body, 0, debugLogMaxBodyBytes)
+		t, _ := TruncateBody(body, 0, bodyLimit)
 		assign(nil, string(t))
 		return
 	}
@@ -301,16 +309,16 @@ func applyBodyToEntry(body []byte, protocol DebugLogProtocol, side debugLogSide,
 	smart, ok := SmartTruncate(body, protocol, side, info)
 	if !ok {
 		info.SmartFailed = true
-		t, _ := TruncateBody(body, 0, debugLogMaxBodyBytes)
+		t, _ := TruncateBody(body, 0, bodyLimit)
 		assign(nil, string(t))
 		return
 	}
 
 	// 字段级截断后若仍超硬上限(极少数:几十张图、几百轮历史),再做字节硬截。
 	// 此时 JSON 结构很可能被破坏 → 退化到 Text 列。
-	if len(smart) > debugLogMaxBodyBytes {
-		info.OverallCutBytes = len(smart) - debugLogMaxBodyBytes
-		t, _ := TruncateBody(smart, 0, debugLogMaxBodyBytes)
+	if len(smart) > bodyLimit {
+		info.OverallCutBytes = len(smart) - bodyLimit
+		t, _ := TruncateBody(smart, 0, bodyLimit)
 		if json.Valid(t) {
 			assign(json.RawMessage(t), "")
 		} else {

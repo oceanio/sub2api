@@ -1830,6 +1830,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		AffiliateEnabled: updatedSettings.AffiliateEnabled,
 
 		RiskControlEnabled: updatedSettings.RiskControlEnabled,
+
+		DebugRequestLogEnabled:       updatedSettings.DebugRequestLogEnabled,
+		DebugRequestLogTTLHours:      updatedSettings.DebugRequestLogTTLHours,
+		DebugRequestLogSampleRate:    updatedSettings.DebugRequestLogSampleRate,
+		DebugRequestLogRedactHeaders: updatedSettings.DebugRequestLogRedactHeaders,
+		DebugRequestLogBodyLimit:     updatedSettings.DebugRequestLogBodyLimit,
 	}
 	if fastPolicy, err := h.settingService.GetOpenAIFastPolicySettings(c.Request.Context()); err != nil {
 		slog.Error("openai_fast_policy_settings_get_failed", "error", err)
