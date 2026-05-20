@@ -12,9 +12,9 @@
     <!-- Right side label -->
     <span v-if="showLabel" :class="labelClass">
       <template v-if="hasCustomRate">
-        <!-- 原折扣删除线 + 专属折扣高亮 -->
-        <span class="line-through opacity-50 mr-0.5">{{ formatDiscount(rateMultiplier) }}</span>
-        <span class="font-bold">{{ formatDiscount(userRateMultiplier) }}</span>
+        <!-- 原折扣删除线 + 专属折扣高亮，后缀统一拼接 -->
+        <span class="line-through opacity-50 mr-0.5">{{ formatDiscount(rateMultiplier) }} {{ rateUnit }}</span>
+        <span class="font-bold">{{ formatDiscount(userRateMultiplier) }} {{ rateUnit }}</span>
       </template>
       <template v-else>
         {{ labelText }}
@@ -82,13 +82,19 @@ const showLabel = computed(() => {
   return props.rateMultiplier !== undefined || hasCustomRate.value
 })
 
-// 按当前 displayDiscount 设置渲染：倍率（Nx）或 折扣（N%）
+// 当前是否真正以"折扣"形式渲染（开关开启 + 汇率存在）；否则回退到倍率
+const useDiscount = computed(() => {
+  return props.displayDiscount === true && !!props.exchangeRate && props.exchangeRate > 0
+})
+
+// 后缀文案，与 formatDiscount 渲染模式保持同步
+const rateUnit = computed(() => (useDiscount.value ? '折扣' : '倍率'))
+
+// 按当前 useDiscount 渲染：倍率（Nx）或 折扣（N%）；不附后缀，后缀在外层模板统一拼接
 const formatDiscount = (multiplier: number | null | undefined): string => {
   if (multiplier === null || multiplier === undefined) return ''
-  if (!props.displayDiscount) return `${multiplier}x`
-  const rate = props.exchangeRate && props.exchangeRate > 0 ? props.exchangeRate : null
-  if (rate === null) return `${multiplier}x` // 折扣模式下汇率缺失时回退到倍率
-  const discount = Math.round((multiplier / rate) * 100)
+  if (!useDiscount.value) return `${multiplier}x`
+  const discount = Math.round((multiplier / (props.exchangeRate as number)) * 100)
   return `${discount}%`
 }
 
@@ -105,7 +111,9 @@ const labelText = computed(() => {
     // 否则显示"订阅"
     return t('groups.subscription')
   }
-  return props.rateMultiplier !== undefined ? formatDiscount(props.rateMultiplier) : ''
+  return props.rateMultiplier !== undefined
+    ? `${formatDiscount(props.rateMultiplier)} ${rateUnit.value}`
+    : ''
 })
 
 // Label style based on type and days remaining

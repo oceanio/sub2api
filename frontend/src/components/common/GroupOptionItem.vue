@@ -24,14 +24,14 @@
 
     <!-- Right: rate pill + checkmark (vertically centered to first row) -->
     <div class="flex shrink-0 items-center gap-2 pt-0.5">
-      <!-- Discount / multiplier pill (platform color) -->
+      <!-- Discount / multiplier pill (platform color)，后缀统一拼接 -->
       <span v-if="rateMultiplier !== undefined" :class="['inline-flex items-center whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold', ratePillClass]">
         <template v-if="hasCustomRate">
-          <span class="mr-1 line-through opacity-50">{{ formatDiscount(rateMultiplier) }}</span>
-          <span class="font-bold">{{ formatDiscount(userRateMultiplier) }}</span>
+          <span class="mr-1 line-through opacity-50">{{ formatDiscount(rateMultiplier) }} {{ rateUnit }}</span>
+          <span class="font-bold">{{ formatDiscount(userRateMultiplier) }} {{ rateUnit }}</span>
         </template>
         <template v-else>
-          {{ formatDiscount(rateMultiplier) }} {{ displayDiscount && exchangeRate ? '折扣' : '倍率' }}
+          {{ formatDiscount(rateMultiplier) }} {{ rateUnit }}
         </template>
       </span>
       <!-- Checkmark -->
@@ -88,13 +88,19 @@ const hasCustomRate = computed(() => {
   )
 })
 
-// 按当前 displayDiscount 设置渲染：倍率（Nx）或 折扣（N%）
+// 当前是否真正以"折扣"形式渲染（开关开启 + 汇率存在）；否则回退到倍率
+const useDiscount = computed(() => {
+  return props.displayDiscount === true && !!props.exchangeRate && props.exchangeRate > 0
+})
+
+// 后缀文案，与 formatDiscount 渲染模式保持同步
+const rateUnit = computed(() => (useDiscount.value ? '折扣' : '倍率'))
+
+// 按当前 useDiscount 渲染：倍率（Nx）或 折扣（N%）；不附后缀，后缀在外层模板统一拼接
 const formatDiscount = (multiplier: number | null | undefined): string => {
   if (multiplier === null || multiplier === undefined) return ''
-  if (!props.displayDiscount) return `${multiplier}x`
-  const rate = props.exchangeRate && props.exchangeRate > 0 ? props.exchangeRate : null
-  if (rate === null) return `${multiplier}x`
-  const discount = Math.round((multiplier / rate) * 100)
+  if (!useDiscount.value) return `${multiplier}x`
+  const discount = Math.round((multiplier / (props.exchangeRate as number)) * 100)
   return `${discount}%`
 }
 
