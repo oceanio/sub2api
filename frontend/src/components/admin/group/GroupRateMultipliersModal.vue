@@ -12,6 +12,9 @@
         <span class="text-gray-400">|</span>
         <span class="text-gray-600 dark:text-gray-400">
           {{ t('admin.groups.columns.rateMultiplier') }}: {{ group.rate_multiplier }}x
+          <span v-if="showDiscountHint" class="ml-0.5 text-gray-400">
+            ({{ formatDiscount(group.rate_multiplier) }} 折扣)
+          </span>
         </span>
       </div>
 
@@ -49,16 +52,22 @@
               </button>
             </div>
           </div>
-          <div class="w-24">
+          <div class="flex items-center gap-2">
             <input
               v-model.number="newRate"
               type="number"
               step="0.001"
               min="0"
               autocomplete="off"
-              class="hide-spinner input w-full"
+              class="hide-spinner input w-24"
               placeholder="1.0"
             />
+            <span
+              v-if="showDiscountHint && newRate != null && newRate > 0"
+              class="whitespace-nowrap text-xs text-gray-400"
+            >
+              ≈ {{ formatDiscount(newRate) }} 折扣
+            </span>
           </div>
           <button
             type="button"
@@ -163,19 +172,33 @@
                       </span>
                     </td>
                     <td class="whitespace-nowrap px-3 py-2">
-                      <input
-                        type="number"
-                        step="0.001"
-                        min="0.001"
-                        autocomplete="off"
-                        :value="entry.rate_multiplier ?? ''"
-                        :placeholder="String(props.group?.rate_multiplier ?? 1)"
-                        class="hide-spinner w-20 rounded border border-gray-200 bg-white px-2 py-1 text-center text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500/20 dark:border-dark-500 dark:bg-dark-700 dark:focus:border-primary-500"
-                        @change="updateLocalRate(entry.user_id, ($event.target as HTMLInputElement).value)"
-                      />
+                      <div class="flex items-center gap-2">
+                        <input
+                          type="number"
+                          step="0.001"
+                          min="0.001"
+                          autocomplete="off"
+                          :value="entry.rate_multiplier ?? ''"
+                          :placeholder="String(props.group?.rate_multiplier ?? 1)"
+                          class="hide-spinner w-20 rounded border border-gray-200 bg-white px-2 py-1 text-center text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500/20 dark:border-dark-500 dark:bg-dark-700 dark:focus:border-primary-500"
+                          @change="updateLocalRate(entry.user_id, ($event.target as HTMLInputElement).value)"
+                        />
+                        <span
+                          v-if="showDiscountHint && entry.rate_multiplier != null && entry.rate_multiplier > 0"
+                          class="whitespace-nowrap text-xs text-gray-400"
+                        >
+                          ≈ {{ formatDiscount(entry.rate_multiplier) }}
+                        </span>
+                      </div>
                     </td>
                     <td v-if="showFinalRate" class="whitespace-nowrap px-3 py-2 font-medium text-primary-600 dark:text-primary-400">
                       {{ computeFinalRate(entry.rate_multiplier) }}
+                      <span
+                        v-if="showDiscountHint && computeFinalRate(entry.rate_multiplier) > 0"
+                        class="ml-1 text-xs font-normal text-gray-400"
+                      >
+                        ({{ formatDiscount(computeFinalRate(entry.rate_multiplier)) }})
+                      </span>
                     </td>
                     <td class="px-2 py-2">
                       <button
@@ -279,6 +302,20 @@ const pageSize = ref(10)
 const batchFactor = ref<number | null>(null)
 
 let searchTimeout: ReturnType<typeof setTimeout>
+
+// 折扣预览：跟随系统 display_discount_enabled + usd_exchange_rate
+const displayDiscountEnabled = computed(
+  () => appStore.cachedPublicSettings?.display_discount_enabled === true
+)
+const usdExchangeRate = computed(() => appStore.cachedPublicSettings?.usd_exchange_rate ?? null)
+const showDiscountHint = computed(
+  () => displayDiscountEnabled.value && (usdExchangeRate.value ?? 0) > 0
+)
+const formatDiscount = (multiplier: number | null | undefined): string => {
+  if (multiplier == null || !showDiscountHint.value) return ''
+  const rate = usdExchangeRate.value as number
+  return `${Math.round((multiplier / rate) * 100)}%`
+}
 
 const platformColorClass = computed(() => {
   switch (props.group?.platform) {

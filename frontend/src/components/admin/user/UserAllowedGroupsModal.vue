@@ -70,7 +70,11 @@
                     </span>
                     <span class="text-gray-300 dark:text-dark-500">•</span>
                     <span class="text-gray-500 dark:text-gray-400">
-                      {{ t('admin.users.defaultRate') }}: <span class="font-medium text-gray-700 dark:text-gray-300">{{ config.defaultRate }}x</span>
+                      {{ t('admin.users.defaultRate') }}:
+                      <span class="font-medium text-gray-700 dark:text-gray-300">{{ config.defaultRate }}x</span>
+                      <span v-if="showDiscountHint" class="ml-0.5 text-xs text-gray-400">
+                        ({{ formatDiscount(config.defaultRate) }} 折扣)
+                      </span>
                     </span>
                   </div>
                 </div>
@@ -87,6 +91,12 @@
                     :placeholder="String(config.defaultRate)"
                     class="hide-spinner w-24 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-dark-500 dark:bg-dark-700 dark:focus:border-primary-500"
                   />
+                  <span
+                    v-if="showDiscountHint && config.customRate != null && config.customRate > 0"
+                    class="whitespace-nowrap text-xs text-gray-400"
+                  >
+                    ≈ {{ formatDiscount(config.customRate) }} 折扣
+                  </span>
                 </div>
               </div>
             </div>
@@ -128,7 +138,11 @@
                     </span>
                     <span class="text-gray-300 dark:text-dark-500">•</span>
                     <span class="text-gray-500 dark:text-gray-400">
-                      {{ t('admin.users.defaultRate') }}: <span class="font-medium text-gray-700 dark:text-gray-300">{{ config.defaultRate }}x</span>
+                      {{ t('admin.users.defaultRate') }}:
+                      <span class="font-medium text-gray-700 dark:text-gray-300">{{ config.defaultRate }}x</span>
+                      <span v-if="showDiscountHint" class="ml-0.5 text-xs text-gray-400">
+                        ({{ formatDiscount(config.defaultRate) }} 折扣)
+                      </span>
                     </span>
                   </div>
                 </div>
@@ -145,6 +159,12 @@
                     :placeholder="String(config.defaultRate)"
                     class="hide-spinner w-24 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-dark-500 dark:bg-dark-700 dark:focus:border-primary-500"
                   />
+                  <span
+                    v-if="showDiscountHint && config.customRate != null && config.customRate > 0"
+                    class="whitespace-nowrap text-xs text-gray-400"
+                  >
+                    ≈ {{ formatDiscount(config.customRate) }} 折扣
+                  </span>
                 </div>
               </div>
             </div>
@@ -207,6 +227,20 @@ const groupConfigs = ref<GroupRateConfig[]>([])
 const originalGroupRates = ref<Record<number, number>>({}) // 记录原始专属倍率，用于检测删除
 const loading = ref(false)
 const submitting = ref(false)
+
+// 折扣预览：跟随系统 display_discount_enabled + usd_exchange_rate
+const displayDiscountEnabled = computed(
+  () => appStore.cachedPublicSettings?.display_discount_enabled === true
+)
+const usdExchangeRate = computed(() => appStore.cachedPublicSettings?.usd_exchange_rate ?? null)
+const showDiscountHint = computed(
+  () => displayDiscountEnabled.value && (usdExchangeRate.value ?? 0) > 0
+)
+const formatDiscount = (multiplier: number | null | undefined): string => {
+  if (multiplier == null || !showDiscountHint.value) return ''
+  const rate = usdExchangeRate.value as number
+  return `${Math.round((multiplier / rate) * 100)}%`
+}
 
 // 分离专属分组和公开分组
 const exclusiveGroups = computed(() => groups.value.filter((g) => g.is_exclusive))

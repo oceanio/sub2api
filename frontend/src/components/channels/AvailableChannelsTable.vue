@@ -93,6 +93,8 @@
                   :subscription-type="(g.subscription_type || 'standard') as SubscriptionType"
                   :rate-multiplier="g.rate_multiplier"
                   :user-rate-multiplier="userGroupRates[g.id] ?? null"
+                  :display-discount="displayDiscountEnabled"
+                  :exchange-rate="usdExchangeRate"
                   always-show-rate
                 />
               </div>
@@ -115,6 +117,8 @@
                   :subscription-type="(g.subscription_type || 'standard') as SubscriptionType"
                   :rate-multiplier="g.rate_multiplier"
                   :user-rate-multiplier="userGroupRates[g.id] ?? null"
+                  :display-discount="displayDiscountEnabled"
+                  :exchange-rate="usdExchangeRate"
                   always-show-rate
                 />
               </div>
@@ -154,6 +158,16 @@ import SupportedModelChip from './SupportedModelChip.vue'
 import type { UserAvailableChannel, UserAvailableGroup, UserChannelPlatformSection } from '@/api/channels'
 import type { GroupPlatform, SubscriptionType } from '@/types'
 import { platformBadgeClass } from '@/utils/platformColors'
+import { useAppStore } from '@/stores/app'
+import { computed } from 'vue'
+
+const appStore = useAppStore()
+const displayDiscountEnabled = computed(
+  () => appStore.cachedPublicSettings?.display_discount_enabled === true
+)
+const usdExchangeRate = computed(
+  () => appStore.cachedPublicSettings?.usd_exchange_rate ?? undefined
+)
 
 const props = defineProps<{
   columns: {

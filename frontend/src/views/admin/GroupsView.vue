@@ -486,15 +486,23 @@
           <label class="input-label">{{
             t("admin.groups.form.rateMultiplier")
           }}</label>
-          <input
-            v-model.number="createForm.rate_multiplier"
-            type="number"
-            step="0.001"
-            min="0.001"
-            required
-            class="input"
-            data-tour="group-form-multiplier"
-          />
+          <div class="flex items-center gap-2">
+            <input
+              v-model.number="createForm.rate_multiplier"
+              type="number"
+              step="0.001"
+              min="0.001"
+              required
+              class="input flex-1"
+              data-tour="group-form-multiplier"
+            />
+            <span
+              v-if="showDiscountHint && createForm.rate_multiplier > 0"
+              class="whitespace-nowrap text-xs text-gray-400"
+            >
+              ≈ {{ formatDiscount(createForm.rate_multiplier) }} 折扣
+            </span>
+          </div>
           <p class="input-hint">{{ t("admin.groups.rateMultiplierHint") }}</p>
         </div>
         <div>
@@ -688,14 +696,22 @@
             <label class="input-label">{{
               t("admin.groups.imagePricing.imageMultiplier")
             }}</label>
-            <input
-              v-model.number="createForm.image_rate_multiplier"
-              type="number"
-              step="0.0001"
-              min="0"
-              class="input"
-              placeholder="1"
-            />
+            <div class="flex items-center gap-2">
+              <input
+                v-model.number="createForm.image_rate_multiplier"
+                type="number"
+                step="0.0001"
+                min="0"
+                class="input flex-1"
+                placeholder="1"
+              />
+              <span
+                v-if="showDiscountHint && (createForm.image_rate_multiplier ?? 0) > 0"
+                class="whitespace-nowrap text-xs text-gray-400"
+              >
+                ≈ {{ formatDiscount(createForm.image_rate_multiplier) }} 折扣
+              </span>
+            </div>
           </div>
           <div class="grid grid-cols-3 gap-3">
             <div>
@@ -1670,15 +1686,23 @@
           <label class="input-label">{{
             t("admin.groups.form.rateMultiplier")
           }}</label>
-          <input
-            v-model.number="editForm.rate_multiplier"
-            type="number"
-            step="0.001"
-            min="0.001"
-            required
-            class="input"
-            data-tour="group-form-multiplier"
-          />
+          <div class="flex items-center gap-2">
+            <input
+              v-model.number="editForm.rate_multiplier"
+              type="number"
+              step="0.001"
+              min="0.001"
+              required
+              class="input flex-1"
+              data-tour="group-form-multiplier"
+            />
+            <span
+              v-if="showDiscountHint && editForm.rate_multiplier > 0"
+              class="whitespace-nowrap text-xs text-gray-400"
+            >
+              ≈ {{ formatDiscount(editForm.rate_multiplier) }} 折扣
+            </span>
+          </div>
         </div>
         <div>
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
@@ -1873,14 +1897,22 @@
             <label class="input-label">{{
               t("admin.groups.imagePricing.imageMultiplier")
             }}</label>
-            <input
-              v-model.number="editForm.image_rate_multiplier"
-              type="number"
-              step="0.0001"
-              min="0"
-              class="input"
-              placeholder="1"
-            />
+            <div class="flex items-center gap-2">
+              <input
+                v-model.number="editForm.image_rate_multiplier"
+                type="number"
+                step="0.0001"
+                min="0"
+                class="input flex-1"
+                placeholder="1"
+              />
+              <span
+                v-if="showDiscountHint && (editForm.image_rate_multiplier ?? 0) > 0"
+                class="whitespace-nowrap text-xs text-gray-400"
+              >
+                ≈ {{ formatDiscount(editForm.image_rate_multiplier) }} 折扣
+              </span>
+            </div>
           </div>
           <div class="grid grid-cols-3 gap-3">
             <div>
@@ -2867,6 +2899,22 @@ import { normalizeSupportedModelScopesForPlatform } from "./groupsSupportedModel
 const { t } = useI18n();
 const appStore = useAppStore();
 const onboardingStore = useOnboardingStore();
+
+// 折扣预览：跟随系统 display_discount_enabled + usd_exchange_rate
+const displayDiscountEnabled = computed(
+  () => appStore.cachedPublicSettings?.display_discount_enabled === true,
+);
+const usdExchangeRate = computed(
+  () => appStore.cachedPublicSettings?.usd_exchange_rate ?? null,
+);
+const showDiscountHint = computed(
+  () => displayDiscountEnabled.value && (usdExchangeRate.value ?? 0) > 0,
+);
+const formatDiscount = (multiplier: number | null | undefined): string => {
+  if (multiplier == null || !showDiscountHint.value) return "";
+  const rate = usdExchangeRate.value as number;
+  return `${Math.round((multiplier / rate) * 100)}%`;
+};
 
 const columns = computed<Column[]>(() => [
   { key: "name", label: t("admin.groups.columns.name"), sortable: true },
