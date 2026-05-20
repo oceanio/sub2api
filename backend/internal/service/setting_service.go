@@ -666,6 +666,9 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyAvailableChannelsEnabled,
 		SettingKeyAffiliateEnabled,
 		SettingKeyRiskControlEnabled,
+		SettingKeyDisplayDiscountEnabled,
+		SettingKeyLocalCurrency,
+		SettingKeyUSDExchangeRate,
 	}
 
 	settings, err := s.settingRepo.GetMultiple(ctx, keys)
@@ -771,7 +774,45 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		AffiliateEnabled: settings[SettingKeyAffiliateEnabled] == "true",
 
 		RiskControlEnabled: settings[SettingKeyRiskControlEnabled] == "true",
+
+		DisplayDiscountEnabled: settings[SettingKeyDisplayDiscountEnabled] == "true",
+		LocalCurrency:          NormalizeLocalCurrency(settings[SettingKeyLocalCurrency]),
+		USDExchangeRate:        parseUSDExchangeRate(settings[SettingKeyUSDExchangeRate]),
 	}, nil
+}
+
+const defaultUSDExchangeRate = 7.2
+const defaultLocalCurrency = "CNY"
+
+// SupportedLocalCurrencies 列出 LocalCurrency 设置可取的白名单值。
+var SupportedLocalCurrencies = []string{"CNY", "HKD"}
+
+// IsSupportedLocalCurrency 判断给定币种是否被白名单接受（大小写不敏感）。
+func IsSupportedLocalCurrency(code string) bool {
+	normalized := strings.ToUpper(strings.TrimSpace(code))
+	for _, c := range SupportedLocalCurrencies {
+		if c == normalized {
+			return true
+		}
+	}
+	return false
+}
+
+// NormalizeLocalCurrency 把任意输入规范化为白名单中的币种；不在白名单内回退到默认值。
+func NormalizeLocalCurrency(code string) string {
+	normalized := strings.ToUpper(strings.TrimSpace(code))
+	if IsSupportedLocalCurrency(normalized) {
+		return normalized
+	}
+	return defaultLocalCurrency
+}
+
+// parseUSDExchangeRate parses the stored string value; falls back to defaultUSDExchangeRate.
+func parseUSDExchangeRate(raw string) float64 {
+	if v, err := strconv.ParseFloat(strings.TrimSpace(raw), 64); err == nil && v > 0 {
+		return v
+	}
+	return defaultUSDExchangeRate
 }
 
 // channelMonitorIntervalMin / channelMonitorIntervalMax bound the default interval
@@ -970,11 +1011,14 @@ type PublicSettingsInjectionPayload struct {
 	// Feature flags — MUST match the opt-in/opt-out registry in
 	// frontend/src/utils/featureFlags.ts. Missing a field here is the bug
 	// that hid the "可用渠道" menu on page refresh.
-	ChannelMonitorEnabled                bool `json:"channel_monitor_enabled"`
-	ChannelMonitorDefaultIntervalSeconds int  `json:"channel_monitor_default_interval_seconds"`
-	AvailableChannelsEnabled             bool `json:"available_channels_enabled"`
-	AffiliateEnabled                     bool `json:"affiliate_enabled"`
-	RiskControlEnabled                   bool `json:"risk_control_enabled"`
+	ChannelMonitorEnabled                bool    `json:"channel_monitor_enabled"`
+	ChannelMonitorDefaultIntervalSeconds int     `json:"channel_monitor_default_interval_seconds"`
+	AvailableChannelsEnabled             bool    `json:"available_channels_enabled"`
+	AffiliateEnabled                     bool    `json:"affiliate_enabled"`
+	RiskControlEnabled                   bool    `json:"risk_control_enabled"`
+	DisplayDiscountEnabled               bool    `json:"display_discount_enabled"`
+	LocalCurrency                        string  `json:"local_currency"`
+	USDExchangeRate                      float64 `json:"usd_exchange_rate"`
 }
 
 // GetPublicSettingsForInjection returns public settings in a format suitable for HTML injection.
@@ -1036,6 +1080,9 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		AvailableChannelsEnabled:             settings.AvailableChannelsEnabled,
 		AffiliateEnabled:                     settings.AffiliateEnabled,
 		RiskControlEnabled:                   settings.RiskControlEnabled,
+		DisplayDiscountEnabled:               settings.DisplayDiscountEnabled,
+		LocalCurrency:                        settings.LocalCurrency,
+		USDExchangeRate:                      settings.USDExchangeRate,
 	}, nil
 }
 
@@ -1693,6 +1740,12 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyDebugRequestLogSampleRate] = strconv.Itoa(settings.DebugRequestLogSampleRate)
 	updates[SettingKeyDebugRequestLogRedactHeaders] = strconv.FormatBool(settings.DebugRequestLogRedactHeaders)
 	updates[SettingKeyDebugRequestLogBodyLimit] = strconv.Itoa(settings.DebugRequestLogBodyLimit)
+
+	updates[SettingKeyDisplayDiscountEnabled] = strconv.FormatBool(settings.DisplayDiscountEnabled)
+	updates[SettingKeyLocalCurrency] = NormalizeLocalCurrency(settings.LocalCurrency)
+	if settings.USDExchangeRate > 0 {
+		updates[SettingKeyUSDExchangeRate] = strconv.FormatFloat(settings.USDExchangeRate, 'f', 4, 64)
+	}
 
 	return updates, nil
 }
@@ -2929,6 +2982,10 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	} else {
 		result.DebugRequestLogBodyLimit = debugLogDefaultBodyLimit
 	}
+
+	result.DisplayDiscountEnabled = settings[SettingKeyDisplayDiscountEnabled] == "true"
+	result.LocalCurrency = NormalizeLocalCurrency(settings[SettingKeyLocalCurrency])
+	result.USDExchangeRate = parseUSDExchangeRate(settings[SettingKeyUSDExchangeRate])
 
 	return result
 }

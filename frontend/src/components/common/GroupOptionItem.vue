@@ -24,14 +24,14 @@
 
     <!-- Right: rate pill + checkmark (vertically centered to first row) -->
     <div class="flex shrink-0 items-center gap-2 pt-0.5">
-      <!-- Rate pill (platform color) -->
+      <!-- Discount / multiplier pill (platform color) -->
       <span v-if="rateMultiplier !== undefined" :class="['inline-flex items-center whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold', ratePillClass]">
         <template v-if="hasCustomRate">
-          <span class="mr-1 line-through opacity-50">{{ rateMultiplier }}x</span>
-          <span class="font-bold">{{ userRateMultiplier }}x</span>
+          <span class="mr-1 line-through opacity-50">{{ formatDiscount(rateMultiplier) }}</span>
+          <span class="font-bold">{{ formatDiscount(userRateMultiplier) }}</span>
         </template>
         <template v-else>
-          {{ rateMultiplier }}x 倍率
+          {{ formatDiscount(rateMultiplier) }} {{ displayDiscount && exchangeRate ? '折扣' : '倍率' }}
         </template>
       </span>
       <!-- Checkmark -->
@@ -63,13 +63,19 @@ interface Props {
   description?: string | null
   selected?: boolean
   showCheckmark?: boolean
+  /** 是否使用"折扣"显示模式；关闭时显示原始倍率 Nx */
+  displayDiscount?: boolean
+  /** 1 USD = exchangeRate 本币；displayDiscount 开启且 >0 时才用 */
+  exchangeRate?: number
 }
 
 const props = withDefaults(defineProps<Props>(), {
   subscriptionType: 'standard',
   selected: false,
   showCheckmark: true,
-  userRateMultiplier: null
+  userRateMultiplier: null,
+  displayDiscount: false,
+  exchangeRate: undefined
 })
 
 // Whether user has a custom rate different from default
@@ -81,6 +87,16 @@ const hasCustomRate = computed(() => {
     props.userRateMultiplier !== props.rateMultiplier
   )
 })
+
+// 按当前 displayDiscount 设置渲染：倍率（Nx）或 折扣（N%）
+const formatDiscount = (multiplier: number | null | undefined): string => {
+  if (multiplier === null || multiplier === undefined) return ''
+  if (!props.displayDiscount) return `${multiplier}x`
+  const rate = props.exchangeRate && props.exchangeRate > 0 ? props.exchangeRate : null
+  if (rate === null) return `${multiplier}x`
+  const discount = Math.round((multiplier / rate) * 100)
+  return `${discount}%`
+}
 
 // Rate pill color matches platform badge color
 const ratePillClass = computed(() => {

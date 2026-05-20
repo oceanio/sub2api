@@ -249,6 +249,11 @@ const (
 	// 管理员 API Key
 	SettingKeyAdminAPIKey = "admin_api_key" // 全局管理员 API Key（用于外部系统集成）
 
+	// 折扣显示功能（用于将"倍率"以"折扣百分比"形式呈现给用户）
+	SettingKeyDisplayDiscountEnabled = "display_discount_enabled" // 是否启用折扣显示模式；关闭时显示原始倍率（Nx）
+	SettingKeyLocalCurrency          = "local_currency"           // 本币币种代码（CNY/HKD），用于汇率换算
+	SettingKeyUSDExchangeRate        = "usd_exchange_rate"        // 1 USD 兑换多少本币（按 LocalCurrency 取值），默认 7.2
+
 	// Gemini 配额策略（JSON）
 	SettingKeyGeminiQuotaPolicy = "gemini_quota_policy"
 

@@ -535,6 +535,11 @@ export interface SystemSettings {
 
   // OpenAI fast/flex policy
   openai_fast_policy_settings?: OpenAIFastPolicySettings;
+
+  // 折扣显示
+  display_discount_enabled?: boolean;
+  local_currency?: string;
+  usd_exchange_rate?: number;
 }
 
 export interface UpdateSettingsRequest {
@@ -737,6 +742,11 @@ export interface UpdateSettingsRequest {
 
   // OpenAI fast/flex policy
   openai_fast_policy_settings?: OpenAIFastPolicySettings;
+
+  // 折扣显示
+  display_discount_enabled?: boolean;
+  local_currency?: string;
+  usd_exchange_rate?: number;
 }
 
 /**
@@ -1119,9 +1129,27 @@ export async function resetWebSearchUsage(payload: {
   );
 }
 
+/**
+ * Refresh USD → local currency exchange rate from network.
+ * Optionally pass a currency code (CNY/HKD) to override the stored one.
+ */
+export async function refreshExchangeRate(
+  currency?: string,
+): Promise<{ local_currency: string; usd_exchange_rate: number }> {
+  const { data } = await apiClient.post<{
+    local_currency: string;
+    usd_exchange_rate: number;
+  }>(
+    "/admin/settings/exchange-rate/refresh",
+    currency ? { currency } : {},
+  );
+  return data;
+}
+
 export const settingsAPI = {
   getSettings,
   updateSettings,
+  refreshExchangeRate,
   testSmtpConnection,
   sendTestEmail,
   getAdminApiKey,

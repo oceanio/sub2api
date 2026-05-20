@@ -12,9 +12,9 @@
     <!-- Right side label -->
     <span v-if="showLabel" :class="labelClass">
       <template v-if="hasCustomRate">
-        <!-- 原倍率删除线 + 专属倍率高亮 -->
-        <span class="line-through opacity-50 mr-0.5">{{ rateMultiplier }}x</span>
-        <span class="font-bold">{{ userRateMultiplier }}x</span>
+        <!-- 原折扣删除线 + 专属折扣高亮 -->
+        <span class="line-through opacity-50 mr-0.5">{{ formatDiscount(rateMultiplier) }}</span>
+        <span class="font-bold">{{ formatDiscount(userRateMultiplier) }}</span>
       </template>
       <template v-else>
         {{ labelText }}
@@ -43,6 +43,10 @@ interface Props {
    * 只关心费率、不关心有效期的场景）。
    */
   alwaysShowRate?: boolean
+  /** 是否使用"折扣"显示模式；关闭时显示原始倍率 Nx */
+  displayDiscount?: boolean
+  /** 1 USD = exchangeRate 本币；displayDiscount 开启且 >0 时才用 */
+  exchangeRate?: number
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -50,7 +54,9 @@ const props = withDefaults(defineProps<Props>(), {
   showRate: true,
   daysRemaining: null,
   userRateMultiplier: null,
-  alwaysShowRate: false
+  alwaysShowRate: false,
+  displayDiscount: false,
+  exchangeRate: undefined
 })
 
 const { t } = useI18n()
@@ -76,9 +82,18 @@ const showLabel = computed(() => {
   return props.rateMultiplier !== undefined || hasCustomRate.value
 })
 
+// 按当前 displayDiscount 设置渲染：倍率（Nx）或 折扣（N%）
+const formatDiscount = (multiplier: number | null | undefined): string => {
+  if (multiplier === null || multiplier === undefined) return ''
+  if (!props.displayDiscount) return `${multiplier}x`
+  const rate = props.exchangeRate && props.exchangeRate > 0 ? props.exchangeRate : null
+  if (rate === null) return `${multiplier}x` // 折扣模式下汇率缺失时回退到倍率
+  const discount = Math.round((multiplier / rate) * 100)
+  return `${discount}%`
+}
+
 // Label text
 const labelText = computed(() => {
-  const rateLabel = props.rateMultiplier !== undefined ? `${props.rateMultiplier}x` : ''
   if (isSubscription.value && !props.alwaysShowRate) {
     // 如果有剩余天数，显示天数
     if (props.daysRemaining !== null && props.daysRemaining !== undefined) {
@@ -90,7 +105,7 @@ const labelText = computed(() => {
     // 否则显示"订阅"
     return t('groups.subscription')
   }
-  return rateLabel
+  return props.rateMultiplier !== undefined ? formatDiscount(props.rateMultiplier) : ''
 })
 
 // Label style based on type and days remaining

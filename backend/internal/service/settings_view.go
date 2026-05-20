@@ -202,6 +202,11 @@ type SystemSettings struct {
 	DebugRequestLogSampleRate    int  // 采样率 1-100
 	DebugRequestLogRedactHeaders bool // 是否脱敏请求头
 	DebugRequestLogBodyLimit     int  // body 截断字节数（0=不截断）
+
+	// 折扣显示功能
+	DisplayDiscountEnabled bool    // 是否启用"折扣"显示模式（关闭时展示原始倍率 Nx）
+	LocalCurrency          string  // 本币币种代码（CNY/HKD），用于汇率换算
+	USDExchangeRate        float64 // 1 USD = N LocalCurrency（按 LocalCurrency 解释）
 }
 
 type DefaultSubscriptionSetting struct {
@@ -271,6 +276,11 @@ type PublicSettings struct {
 
 	// 风控中心功能开关
 	RiskControlEnabled bool `json:"risk_control_enabled"`
+
+	// 折扣显示功能
+	DisplayDiscountEnabled bool    `json:"display_discount_enabled"`
+	LocalCurrency          string  `json:"local_currency"`
+	USDExchangeRate        float64 `json:"usd_exchange_rate"`
 }
 
 type LoginAgreementDocument struct {
