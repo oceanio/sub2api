@@ -8132,6 +8132,13 @@ func resolveUsageBillingRequestID(ctx context.Context, upstreamRequestID string)
 	return "generated:" + generateRequestID()
 }
 
+// ResolveCorrelationID 给出一次请求的统一关联 ID，供 usage_logs 和
+// request_debug_logs 共用，确保两表能用同一字符串 JOIN。
+// 调用方需要保证 ctx 来自 c.Request.Context()（带 middleware 注入的 RequestID）。
+func ResolveCorrelationID(ctx context.Context, upstreamRequestID string) string {
+	return resolveUsageBillingRequestID(ctx, upstreamRequestID)
+}
+
 func resolveUsageBillingPayloadFingerprint(ctx context.Context, requestPayloadHash string) string {
 	if payloadHash := strings.TrimSpace(requestPayloadHash); payloadHash != "" {
 		return payloadHash

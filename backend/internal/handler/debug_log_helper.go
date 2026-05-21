@@ -5,11 +5,9 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // responseCapture wraps gin.ResponseWriter to tee response bytes into a
@@ -94,12 +92,10 @@ func enqueueDebugLog(
 		return
 	}
 
-	if requestID == "" {
-		requestID, _ = ctx.Value(ctxkey.RequestID).(string)
-	}
-	if requestID == "" {
-		requestID = "dbg-" + uuid.NewString()
-	}
+	// 与 usage_logs 共用 ResolveCorrelationID，保证两表 request_id 恒等：
+	// 即便上游不返回 x-request-id（如 llmgw），双方都会落到 ctxkey.RequestID
+	// 注入的 "local:<UUID>"，前端用 usage_logs.request_id 查 debug log 必命中。
+	requestID = service.ResolveCorrelationID(ctx, requestID)
 
 	var userID, apiKeyID, groupID *int64
 	if apiKey != nil {
