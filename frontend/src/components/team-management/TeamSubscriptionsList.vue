@@ -72,7 +72,8 @@
           </div>
         </template>
         <template #cell-actions="{ row }">
-          <div class="flex items-center gap-1">
+          <!-- Reset-quota and revoke are sys-admin-only — see routes/team.go. -->
+          <div v-if="source === 'admin'" class="flex items-center gap-1">
             <button
               v-if="row.status === 'active'"
               @click="askResetQuota(row)"

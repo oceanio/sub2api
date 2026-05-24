@@ -77,8 +77,10 @@ func RegisterTeamRoutes(
 		scoped.GET("/subscriptions", h.TeamScoped.ListSubscriptions)
 
 		scoped.POST("/subscriptions", h.TeamScoped.PurchaseSubscription)
-		scoped.POST("/subscriptions/:subID/reset-quota", h.TeamScoped.ResetSubscriptionQuota)
-		scoped.DELETE("/subscriptions/:subID", h.TeamScoped.RevokeSubscription)
+		// Reset-quota and revoke are intentionally NOT exposed to team_admin —
+		// they remain sys-admin-only because revoke is a hard delete with no
+		// refund and reset-quota is privileged ops work. team_admin can
+		// re-purchase to top up; refunds go through the manual refund flow.
 		scoped.GET("/plans", h.TeamScoped.ListPlans)
 	}
 }
