@@ -618,15 +618,50 @@ func (s *TeamService) ResetMemberPassword(ctx context.Context, teamID, memberID,
 	return s.userRepo.Update(ctx, user)
 }
 
-// PurchaseSubscriptionForMember deducts plan.price from team balance and
-// assigns the subscription to the target member. Single tx.
-func (s *TeamService) PurchaseSubscriptionForMember(ctx context.Context, teamID, targetUserID, planID, operatorID int64) (*UserSubscription, error) {
+// teamPurchaseBatchSize bounds each commit so a single tx doesn't lock the
+// team/users/subscriptions rows for too long when buying for many members.
+const teamPurchaseBatchSize = 50
+
+// BulkPurchaseSubscriptionResult summarises a batched purchase/renew run so
+// the caller can show progress (and partial outcome when balance ran out
+// mid-batch).
+type BulkPurchaseSubscriptionResult struct {
+	Total         int                `json:"total"`          // # of target members at execution time
+	Succeeded     int                `json:"succeeded"`      // # of subscriptions actually assigned/extended
+	Subscriptions []UserSubscription `json:"subscriptions"`  // assigned/extended subscriptions in input order
+	StoppedReason string             `json:"stopped_reason,omitempty"` // "" | "insufficient_balance"
+}
+
+// PurchaseSubscriptionsForMembers assigns or extends a plan for either a
+// supplied set of members (requestedUserIDs) or every active member of the
+// team (forAll=true). Work is committed in chunks of teamPurchaseBatchSize so
+// the per-tx lock window stays short even for large teams.
+//
+// Renewal semantics: if a member already holds a subscription for
+// plan.group_id, the term is extended (un-expired: accumulate; expired:
+// restart from now). This also closes the double-charge gap on the old
+// single-user path (idempotent assign that still deducted balance).
+//
+// Atomicity: each chunk is one tx. A mid-run "insufficient balance" stops the
+// run gracefully — chunks already committed remain (the balance for those was
+// spent), the result records Succeeded < Total + StoppedReason. Any other
+// error rolls back the current chunk and surfaces to the caller; chunks
+// already committed remain.
+func (s *TeamService) PurchaseSubscriptionsForMembers(
+	ctx context.Context,
+	teamID int64,
+	requestedUserIDs []int64,
+	forAll bool,
+	planID, operatorID int64,
+) (*BulkPurchaseSubscriptionResult, error) {
 	if err := s.requireTeamAdmin(ctx, teamID, operatorID); err != nil {
 		return nil, err
 	}
-	targetMember, err := s.memberRepo.GetByTeamAndUserID(ctx, teamID, targetUserID)
-	if err != nil || targetMember == nil {
-		return nil, ErrTeamNotMember
+	if !forAll && len(requestedUserIDs) == 0 {
+		return nil, fmt.Errorf("target user ids required when all_members=false")
+	}
+	if forAll && len(requestedUserIDs) > 0 {
+		return nil, fmt.Errorf("cannot pass user_ids together with all_members=true")
 	}
 
 	plan, err := s.entClient.SubscriptionPlan.Get(ctx, planID)
@@ -634,53 +669,154 @@ func (s *TeamService) PurchaseSubscriptionForMember(ctx context.Context, teamID,
 		return nil, fmt.Errorf("get subscription plan: %w", err)
 	}
 
-	tx, err := s.entClient.Tx(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
+	// Resolve the target list once. For forAll this is a "snapshot at start":
+	// members added/removed during the run aren't picked up — keeps the
+	// operator's intent ("buy for everyone right now") well-defined.
+	var targetUserIDs []int64
+	if forAll {
+		targetUserIDs, err = s.memberRepo.ListMemberUserIDs(ctx, teamID, nil)
+		if err != nil {
+			return nil, fmt.Errorf("list team members: %w", err)
+		}
+	} else {
+		seen := make(map[int64]struct{}, len(requestedUserIDs))
+		deduped := make([]int64, 0, len(requestedUserIDs))
+		for _, uid := range requestedUserIDs {
+			if _, dup := seen[uid]; dup {
+				continue
+			}
+			seen[uid] = struct{}{}
+			deduped = append(deduped, uid)
+		}
+		matched, err := s.memberRepo.ListMemberUserIDs(ctx, teamID, deduped)
+		if err != nil {
+			return nil, fmt.Errorf("validate members: %w", err)
+		}
+		if len(matched) != len(deduped) {
+			return nil, ErrTeamNotMember
+		}
+		targetUserIDs = deduped
 	}
-	defer func() { _ = tx.Rollback() }()
-	txCtx := dbent.NewTxContext(ctx, tx)
 
-	updatedTeam, err := tx.Team.UpdateOneID(teamID).AddBalance(-plan.Price).Save(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("deduct team balance: %w", err)
+	result := &BulkPurchaseSubscriptionResult{
+		Total:         len(targetUserIDs),
+		Subscriptions: make([]UserSubscription, 0, len(targetUserIDs)),
 	}
-	if updatedTeam.Balance < 0 {
+	if len(targetUserIDs) == 0 {
+		return result, nil
+	}
+
+	// Pre-flight balance check — reject the obvious "not enough money" case
+	// before any side effect. Concurrent deductions during the run can still
+	// produce a mid-batch shortfall; that case is handled by the per-batch
+	// overdraft check inside processPurchaseBatch.
+	totalCost := plan.Price * float64(len(targetUserIDs))
+	team, err := s.teamRepo.GetByID(ctx, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("read team balance: %w", err)
+	}
+	if team.Balance < totalCost {
 		return nil, ErrTeamInsufficientBalance
 	}
 
-	sub, err := s.subService.AssignSubscription(txCtx, &AssignSubscriptionInput{
-		UserID:       targetUserID,
-		GroupID:      plan.GroupID,
-		ValidityDays: plan.ValidityDays,
-		AssignedBy:   operatorID,
-		Notes:        fmt.Sprintf("team_purchase:team_id=%d:plan_id=%d", teamID, planID),
-	})
+	for start := 0; start < len(targetUserIDs); start += teamPurchaseBatchSize {
+		end := start + teamPurchaseBatchSize
+		if end > len(targetUserIDs) {
+			end = len(targetUserIDs)
+		}
+		chunk := targetUserIDs[start:end]
+
+		subs, stopped, err := s.processPurchaseBatch(ctx, teamID, plan, planID, operatorID, chunk)
+		if err != nil {
+			return nil, err
+		}
+		result.Subscriptions = append(result.Subscriptions, subs...)
+		result.Succeeded += len(subs)
+		if stopped {
+			result.StoppedReason = "insufficient_balance"
+			break
+		}
+	}
+
+	for i := 0; i < result.Succeeded; i++ {
+		s.invalidateAuthCacheForUser(ctx, targetUserIDs[i])
+	}
+	return result, nil
+}
+
+// processPurchaseBatch commits one chunk in a single tx. Returns the chunk's
+// subscriptions on success, (nil, true, nil) when the team balance went
+// negative (rolled back, caller stops the run), or (nil, false, err) on a
+// real error.
+func (s *TeamService) processPurchaseBatch(
+	ctx context.Context,
+	teamID int64,
+	plan *dbent.SubscriptionPlan,
+	planID, operatorID int64,
+	userIDs []int64,
+) ([]UserSubscription, bool, error) {
+	tx, err := s.entClient.Tx(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("assign subscription: %w", err)
+		return nil, false, fmt.Errorf("begin tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	txCtx := dbent.NewTxContext(ctx, tx)
+
+	chunkCost := plan.Price * float64(len(userIDs))
+	updatedTeam, err := tx.Team.UpdateOneID(teamID).AddBalance(-chunkCost).Save(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("deduct team balance: %w", err)
+	}
+	if updatedTeam.Balance < 0 {
+		return nil, true, nil
 	}
 
-	if _, err := tx.UserSubscription.UpdateOneID(sub.ID).SetTeamID(teamID).Save(ctx); err != nil {
-		return nil, fmt.Errorf("stamp team_id on subscription: %w", err)
-	}
+	subs := make([]UserSubscription, 0, len(userIDs))
+	for _, uid := range userIDs {
+		sub, isRenewal, err := s.subService.AssignOrExtendSubscription(txCtx, &AssignSubscriptionInput{
+			UserID:       uid,
+			GroupID:      plan.GroupID,
+			ValidityDays: plan.ValidityDays,
+			AssignedBy:   operatorID,
+			Notes:        fmt.Sprintf("team_purchase:team_id=%d:plan_id=%d", teamID, planID),
+		})
+		if err != nil {
+			return nil, false, fmt.Errorf("assign subscription for user %d: %w", uid, err)
+		}
 
-	note := fmt.Sprintf("subscription plan %d for user %d", planID, targetUserID)
-	if _, err := tx.TeamBalanceLog.Create().
-		SetTeamID(teamID).
-		SetType(TeamBalanceLogTypeSubscriptionPurchase).
-		SetAmount(-plan.Price).
-		SetOperatorID(operatorID).
-		SetTargetUserID(targetUserID).
-		SetNote(note).
-		Save(ctx); err != nil {
-		return nil, fmt.Errorf("create balance log: %w", err)
+		if _, err := tx.UserSubscription.UpdateOneID(sub.ID).SetTeamID(teamID).Save(ctx); err != nil {
+			return nil, false, fmt.Errorf("stamp team_id on subscription: %w", err)
+		}
+
+		action := "purchase"
+		if isRenewal {
+			action = "renew"
+		}
+		note := fmt.Sprintf("%s plan %d for user %d", action, planID, uid)
+		if _, err := tx.TeamBalanceLog.Create().
+			SetTeamID(teamID).
+			SetType(TeamBalanceLogTypeSubscriptionPurchase).
+			SetAmount(-plan.Price).
+			SetOperatorID(operatorID).
+			SetTargetUserID(uid).
+			SetNote(note).
+			Save(ctx); err != nil {
+			return nil, false, fmt.Errorf("create balance log: %w", err)
+		}
+
+		subs = append(subs, *sub)
 	}
 
 	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("commit tx: %w", err)
+		return nil, false, fmt.Errorf("commit tx: %w", err)
 	}
-	s.invalidateAuthCacheForUser(ctx, targetUserID)
-	return sub, nil
+	committed = true
+	return subs, false, nil
 }
 
 // ListTeamSubscriptions returns paginated subscriptions purchased by this team (team_admin path).

@@ -75,8 +75,7 @@ func RegisterTeamRoutes(
 		scoped.GET("/balance", h.TeamScoped.ListBalanceLogs)
 		scoped.GET("/subscriptions", h.TeamScoped.ListSubscriptions)
 
-		// team_admin-only operations.
-		scoped.POST("/subscriptions", h.Team.PurchaseSubscription)
-		scoped.GET("/plans", h.Team.ListPlans)
+		scoped.POST("/subscriptions", h.TeamScoped.PurchaseSubscription)
+		scoped.GET("/plans", h.TeamScoped.ListPlans)
 	}
 }

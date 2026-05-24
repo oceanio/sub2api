@@ -391,14 +391,34 @@ export async function listSubscriptions(source: Source, teamId: number, page = 1
   return data
 }
 
-/** Purchase subscription (team_admin only). */
-export async function purchaseSubscription(teamId: number, userID: number, planID: number): Promise<unknown> {
-  const { data } = await apiClient.post(`/team/${teamId}/subscriptions`, { user_id: userID, plan_id: planID })
+export interface BulkPurchaseSubscriptionResult {
+  total: number
+  succeeded: number
+  subscriptions: TeamSubscription[]
+  stopped_reason?: string
+}
+
+/** Purchase or renew a subscription for one or many team members. Pass either
+ * a specific `userIDs` set or `allMembers: true` to target every active
+ * member of the team (resolved server-side). The server commits work in
+ * chunks; `stopped_reason` in the result indicates whether the run stopped
+ * early (e.g. balance ran out mid-batch).
+ */
+export async function purchaseSubscription(
+  source: Source,
+  teamId: number,
+  target: { userIDs: number[] } | { allMembers: true },
+  planID: number,
+): Promise<BulkPurchaseSubscriptionResult> {
+  const body: Record<string, unknown> = { plan_id: planID }
+  if ('allMembers' in target) body.all_members = true
+  else body.user_ids = target.userIDs
+  const { data } = await apiClient.post<BulkPurchaseSubscriptionResult>(`${teamBasePath(source, teamId)}/subscriptions`, body)
   return data
 }
 
-export async function listPlans(teamId: number): Promise<SubscriptionPlan[]> {
-  const { data } = await apiClient.get<SubscriptionPlan[]>(`/team/${teamId}/plans`)
+export async function listPlans(source: Source, teamId: number): Promise<SubscriptionPlan[]> {
+  const { data } = await apiClient.get<SubscriptionPlan[]>(`${teamBasePath(source, teamId)}/plans`)
   return data
 }
 

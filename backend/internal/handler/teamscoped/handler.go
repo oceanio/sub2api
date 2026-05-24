@@ -556,6 +556,74 @@ func (h *Handler) ListSubscriptions(c *gin.Context) {
 	response.Paginated(c, subs, result.Total, page, pageSize)
 }
 
+// ListPlans GET /api/v1/team/:teamId/plans
+//       and GET /api/v1/admin/teams/:id/plans
+func (h *Handler) ListPlans(c *gin.Context) {
+	teamID, ok := resolveTeamID(c)
+	if !ok {
+		return
+	}
+	plans, err := h.teamService.ListSubscriptionPlans(c.Request.Context(), teamID, operatorID(c))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	out := make([]gin.H, 0, len(plans))
+	for _, p := range plans {
+		out = append(out, gin.H{
+			"id":            p.ID,
+			"group_id":      p.GroupID,
+			"name":          p.Name,
+			"description":   p.Description,
+			"price":         p.Price,
+			"validity_days": p.ValidityDays,
+			"product_name":  p.ProductName,
+			"for_sale":      p.ForSale,
+		})
+	}
+	response.Success(c, out)
+}
+
+type purchaseSubscriptionRequest struct {
+	// Exactly one of UserIDs / AllMembers must be set.
+	UserIDs    []int64 `json:"user_ids,omitempty" binding:"omitempty,dive,gt=0"`
+	AllMembers bool    `json:"all_members,omitempty"`
+	PlanID     int64   `json:"plan_id" binding:"required"`
+}
+
+// PurchaseSubscription POST /api/v1/team/:teamId/subscriptions
+//                  and POST /api/v1/admin/teams/:id/subscriptions
+//
+// Purchase-or-renew semantics: if a target member already has a subscription
+// for the plan's group, the term is extended; otherwise a new subscription is
+// created. Work is committed in chunks; a partial run is reported via the
+// response's `stopped_reason`.
+func (h *Handler) PurchaseSubscription(c *gin.Context) {
+	teamID, ok := resolveTeamID(c)
+	if !ok {
+		return
+	}
+	var req purchaseSubscriptionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	if req.AllMembers && len(req.UserIDs) > 0 {
+		response.BadRequest(c, "cannot specify both all_members and user_ids")
+		return
+	}
+	if !req.AllMembers && len(req.UserIDs) == 0 {
+		response.BadRequest(c, "user_ids required when all_members is false")
+		return
+	}
+	result, err := h.teamService.PurchaseSubscriptionsForMembers(c.Request.Context(), teamID, req.UserIDs, req.AllMembers, req.PlanID, operatorID(c))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
 func (h *Handler) ListBalanceLogs(c *gin.Context) {
 	teamID, ok := resolveTeamID(c)
 	if !ok {

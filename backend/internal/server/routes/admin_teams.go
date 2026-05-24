@@ -42,6 +42,8 @@ func registerAdminTeamRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		teams.GET("/:id/usage/endpoint-stats", h.TeamScoped.UsageEndpointStats)
 		teams.GET("/:id/usage/user-breakdown", h.TeamScoped.UsageUserBreakdown)
 		teams.GET("/:id/subscriptions", h.TeamScoped.ListSubscriptions)
+		teams.POST("/:id/subscriptions", h.TeamScoped.PurchaseSubscription)
+		teams.GET("/:id/plans", h.TeamScoped.ListPlans)
 		teams.GET("/:id/balance", h.TeamScoped.ListBalanceLogs)
 		teams.PUT("/:id/tags", h.TeamScoped.UpdateAvailableTags)
 	}

@@ -360,6 +360,19 @@ func (r *teamMemberRepository) GetByTeamAndUserID(ctx context.Context, teamID, u
 	return teamMemberEntityToService(m), nil
 }
 
+func (r *teamMemberRepository) ListMemberUserIDs(ctx context.Context, teamID int64, filter []int64) ([]int64, error) {
+	q := r.client.TeamMember.Query().
+		Where(teammember.TeamIDEQ(teamID), teammember.DeletedAtIsNil())
+	if len(filter) > 0 {
+		q = q.Where(teammember.UserIDIn(filter...))
+	}
+	var ids []int64
+	if err := q.Select(teammember.FieldUserID).Scan(ctx, &ids); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
 func (r *teamMemberRepository) UpdateTags(ctx context.Context, id int64, tags []string) error {
 	u := r.client.TeamMember.UpdateOneID(id)
 	if len(tags) > 0 {

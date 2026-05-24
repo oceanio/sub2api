@@ -1,6 +1,6 @@
 <template>
   <TablePageLayout>
-    <template v-if="source === 'team_admin'" #actions>
+    <template #actions>
       <div class="flex justify-end gap-3">
         <button class="btn btn-primary" @click="openPurchase">
           <Icon name="plus" size="md" class="mr-2" />
@@ -36,22 +36,60 @@
     </template>
   </TablePageLayout>
 
-  <BaseDialog v-if="source === 'team_admin'" :show="showPurchaseDialog" :title="t('team.subscriptions.purchase')" width="normal" @close="showPurchaseDialog = false">
+  <BaseDialog :show="showPurchaseDialog" :title="t('team.subscriptions.purchase')" width="normal" @close="showPurchaseDialog = false">
     <div class="space-y-4">
       <div>
-        <label class="input-label">{{ t('team.subscriptions.selectMember') }}</label>
-        <Select v-model="purchaseForm.userId" :options="memberOptions" :searchable="true" :placeholder="t('team.subscriptions.selectMember')" />
+        <label class="flex items-center gap-2 rounded-md border border-primary-200 bg-primary-50 px-3 py-2 dark:border-primary-700 dark:bg-primary-900/20">
+          <input
+            type="checkbox"
+            v-model="purchaseForm.allMembers"
+            class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+          />
+          <span class="text-sm font-medium text-primary-700 dark:text-primary-300">
+            {{ t('team.subscriptions.forAllMembers', { count: members.length }) }}
+          </span>
+        </label>
       </div>
+
+      <div v-if="!purchaseForm.allMembers">
+        <div class="mb-2 flex items-center justify-between">
+          <label class="input-label !mb-0">{{ t('team.subscriptions.selectMember') }}</label>
+          <div class="flex items-center gap-3 text-xs">
+            <span class="text-gray-500 dark:text-gray-400">{{ t('team.subscriptions.selectedCount', { count: purchaseForm.userIds.length }) }}</span>
+            <button type="button" class="text-gray-500 hover:underline" @click="clearMembers">{{ t('team.subscriptions.clearAll') }}</button>
+          </div>
+        </div>
+        <p v-if="members.length === 0" class="rounded-md border border-amber-200 bg-amber-50 p-2 text-sm text-amber-700 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+          {{ t('team.subscriptions.noMembers') }}
+        </p>
+        <div v-else class="max-h-64 overflow-y-auto rounded-md border border-gray-200 dark:border-dark-700">
+          <label
+            v-for="m in members"
+            :key="m.user_id"
+            class="flex items-center gap-2 border-b border-gray-100 px-3 py-2 last:border-b-0 hover:bg-gray-50 dark:border-dark-700 dark:hover:bg-dark-800"
+          >
+            <input
+              type="checkbox"
+              :checked="purchaseForm.userIds.includes(m.user_id)"
+              @change="toggleMember(m.user_id)"
+              class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+            />
+            <span class="text-sm text-gray-700 dark:text-gray-200">{{ m.user?.email ?? m.user_id }}</span>
+          </label>
+        </div>
+      </div>
+
       <div>
         <label class="input-label">{{ t('team.subscriptions.selectPlan') }}</label>
         <Select v-model="purchaseForm.planId" :options="planOptions" :searchable="true" :placeholder="t('team.subscriptions.selectPlan')" />
         <p v-if="plans.length === 0" class="mt-2 text-sm text-amber-600">{{ t('team.subscriptions.noPlans') }}</p>
       </div>
-      <div v-if="selectedPlan && team" class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-900/20">
+      <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('team.subscriptions.purchaseHint') }}</p>
+      <div v-if="selectedPlan && team && targetCount > 0" class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-900/20">
         <p class="text-amber-700 dark:text-amber-400">
-          {{ t('team.subscriptions.willDeduct', { amount: selectedPlan.price.toFixed(2), balance: Number(team.balance).toFixed(2) }) }}
+          {{ t('team.subscriptions.willDeduct', { amount: totalCost.toFixed(2), price: selectedPlan.price.toFixed(2), count: targetCount, balance: Number(team.balance).toFixed(2) }) }}
         </p>
-        <p v-if="selectedPlan.price > Number(team.balance)" class="mt-1 font-medium text-red-600">
+        <p v-if="totalCost > Number(team.balance)" class="mt-1 font-medium text-red-600">
           {{ t('team.subscriptions.insufficientBalance') }}
         </p>
       </div>
@@ -100,7 +138,11 @@ const page = ref(1)
 const pageSize = ref(20)
 
 const showPurchaseDialog = ref(false)
-const purchaseForm = ref<{ userId: number | null; planId: number | null }>({ userId: null, planId: null })
+const purchaseForm = ref<{ allMembers: boolean; userIds: number[]; planId: number | null }>({
+  allMembers: false,
+  userIds: [],
+  planId: null,
+})
 
 const columns = computed<Column[]>(() => [
   { key: 'user', label: t('team.members.email'), sortable: false },
@@ -110,18 +152,26 @@ const columns = computed<Column[]>(() => [
   { key: 'usage', label: t('team.subscriptions.usage'), sortable: false },
 ])
 
-const memberOptions = computed(() =>
-  members.value.map(m => ({ value: m.user_id, label: m.user?.email ?? String(m.user_id) }))
-)
 const planOptions = computed(() =>
   plans.value.map(p => ({ value: p.id, label: `${p.name} — $${p.price.toFixed(2)} / ${p.validity_days}d` }))
 )
 const selectedPlan = computed(() => plans.value.find(p => p.id === purchaseForm.value.planId) ?? null)
+const targetCount = computed(() => (purchaseForm.value.allMembers ? members.value.length : purchaseForm.value.userIds.length))
+const totalCost = computed(() => (selectedPlan.value ? selectedPlan.value.price * targetCount.value : 0))
 const canPurchase = computed(() => {
-  if (!purchaseForm.value.userId || !purchaseForm.value.planId) return false
+  if (targetCount.value === 0 || !purchaseForm.value.planId) return false
   if (!selectedPlan.value || !team.value) return false
-  return selectedPlan.value.price <= Number(team.value.balance)
+  return totalCost.value <= Number(team.value.balance)
 })
+
+function toggleMember(userId: number) {
+  const idx = purchaseForm.value.userIds.indexOf(userId)
+  if (idx === -1) purchaseForm.value.userIds.push(userId)
+  else purchaseForm.value.userIds.splice(idx, 1)
+}
+function clearMembers() {
+  purchaseForm.value.userIds = []
+}
 
 function isExpired(row: TeamSubscription) {
   return new Date(row.expires_at).getTime() < Date.now()
@@ -141,11 +191,11 @@ async function load() {
 function onPageChange(p: number) { page.value = p; load() }
 
 async function openPurchase() {
-  purchaseForm.value = { userId: null, planId: null }
+  purchaseForm.value = { allMembers: false, userIds: [], planId: null }
   try {
     const [membersRes, plansRes, teamRes] = await Promise.all([
       teamAPI.listMembers(props.source, props.teamId, 1, 500),
-      teamAPI.listPlans(props.teamId),
+      teamAPI.listPlans(props.source, props.teamId),
       teamAPI.getTeam(props.source, props.teamId),
     ])
     members.value = (membersRes as any).items ?? []
@@ -162,8 +212,15 @@ async function handlePurchase() {
   if (!canPurchase.value) return
   submitting.value = true
   try {
-    await teamAPI.purchaseSubscription(props.teamId, purchaseForm.value.userId!, purchaseForm.value.planId!)
-    appStore.showSuccess(t('team.subscriptions.purchased'))
+    const target = purchaseForm.value.allMembers
+      ? ({ allMembers: true } as const)
+      : ({ userIDs: purchaseForm.value.userIds } as const)
+    const result = await teamAPI.purchaseSubscription(props.source, props.teamId, target, purchaseForm.value.planId!)
+    if (result.stopped_reason === 'insufficient_balance') {
+      appStore.showError(t('team.subscriptions.partialInsufficient', { succeeded: result.succeeded, total: result.total }))
+    } else {
+      appStore.showSuccess(t('team.subscriptions.purchasedCount', { count: result.succeeded }))
+    }
     showPurchaseDialog.value = false
     load()
   } catch (e: any) {

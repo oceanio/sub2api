@@ -132,6 +132,11 @@ type TeamMemberRepository interface {
 	GetByID(ctx context.Context, id int64) (*TeamMember, error)
 	GetByUserID(ctx context.Context, userID int64) (*TeamMember, error)
 	GetByTeamAndUserID(ctx context.Context, teamID, userID int64) (*TeamMember, error)
+	// ListMemberUserIDs returns active member user_ids for teamID. If filter is
+	// non-empty, the result is restricted to user_ids in that set — used by bulk
+	// purchase to validate a request set with one IN query, or to snapshot the
+	// full team for "all members" purchases when filter is nil.
+	ListMemberUserIDs(ctx context.Context, teamID int64, filter []int64) ([]int64, error)
 	UpdateTags(ctx context.Context, id int64, tags []string) error
 	SoftDelete(ctx context.Context, id int64) error
 	ListByTeamID(ctx context.Context, teamID int64, params pagination.PaginationParams) ([]TeamMember, *pagination.PaginationResult, error)
