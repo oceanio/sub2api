@@ -28,6 +28,10 @@
           <Icon name="plus" size="md" class="mr-2" />
           {{ t('team.members.addMember') }}
         </button>
+        <button class="btn btn-secondary" @click="openBatchImport">
+          <Icon name="upload" size="md" class="mr-2" />
+          {{ t('team.members.batchImport') }}
+        </button>
         <button v-if="source === 'admin'" class="btn btn-secondary" @click="openAddExisting">
           <Icon name="userPlus" size="md" class="mr-2" />
           {{ t('team.adminTeams.addMember') }}
@@ -188,6 +192,55 @@
     </template>
   </BaseDialog>
 
+  <!-- Batch import dialog -->
+  <BaseDialog :show="showBatchImportDialog" :title="t('team.members.batchImport')" width="normal" @close="closeBatchImport">
+    <div class="space-y-4">
+      <div class="rounded-md border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600 dark:border-dark-700 dark:bg-dark-800 dark:text-dark-300">
+        <p class="font-medium text-gray-700 dark:text-gray-200">{{ t('team.members.batchImportHint') }}</p>
+        <pre class="mt-2 font-mono leading-5">alice@example.com,Alice123!,Alice
+bob@example.com,Bob123!
+carol@example.com,Carol123!,Carol</pre>
+      </div>
+      <div>
+        <label class="input-label">{{ t('team.members.batchImportInput') }}</label>
+        <textarea
+          v-model="batchImportText"
+          rows="10"
+          class="input font-mono text-sm"
+          :placeholder="'alice@example.com,Alice123!,Alice'"
+        ></textarea>
+        <p v-if="batchPreview.invalidCount > 0" class="mt-1 text-xs text-red-600">
+          {{ t('team.members.batchImportInvalid', { count: batchPreview.invalidCount }) }}
+        </p>
+        <p v-else-if="batchPreview.validRows.length > 0" class="mt-1 text-xs text-emerald-600">
+          {{ t('team.members.batchImportParsed', { count: batchPreview.validRows.length }) }}
+        </p>
+      </div>
+      <div v-if="batchResult" class="space-y-2 rounded-md border border-gray-200 p-3 dark:border-dark-700">
+        <p class="text-sm font-medium">
+          {{ t('team.members.batchImportSummary', { succeeded: batchResult.succeeded, failed: batchResult.failed, total: batchResult.total }) }}
+        </p>
+        <div v-if="batchResult.failed > 0" class="max-h-40 overflow-y-auto text-xs">
+          <div v-for="r in batchFailedRows" :key="r.index" class="flex items-start gap-2 py-1">
+            <span class="font-mono text-gray-500">#{{ r.index + 1 }}</span>
+            <span class="font-medium">{{ r.email }}</span>
+            <span class="text-red-600">{{ r.error }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <template #footer>
+      <button class="btn btn-secondary" @click="closeBatchImport">{{ t('common.cancel') }}</button>
+      <button
+        class="btn btn-primary"
+        :disabled="saving || batchPreview.validRows.length === 0 || batchPreview.invalidCount > 0"
+        @click="handleBatchImport"
+      >
+        {{ saving ? t('common.saving') : t('team.members.batchImportSubmit', { count: batchPreview.validRows.length }) }}
+      </button>
+    </template>
+  </BaseDialog>
+
   <!-- Tags dialog (team_admin only) -->
   <BaseDialog :show="showTagsDialog" :title="t('team.members.manageTags')" width="narrow" @close="showTagsDialog = false">
     <div class="space-y-3">
@@ -271,8 +324,12 @@ const saving = ref(false)
 
 const showCreateDialog = ref(false)
 const showAddExistingDialog = ref(false)
+const showBatchImportDialog = ref(false)
 const showTagsDialog = ref(false)
 const showPwdDialog = ref(false)
+
+const batchImportText = ref('')
+const batchResult = ref<import('@/api/team').BulkCreateMembersResult | null>(null)
 const showRemoveConfirm = ref(false)
 const removeTarget = ref<TeamMember | null>(null)
 const activeTarget = ref<TeamMember | null>(null)
@@ -354,6 +411,62 @@ async function handleCreate() {
     appStore.showSuccess(t('team.members.memberCreated'))
     showCreateDialog.value = false
     createForm.value = { email: '', username: '', password: '' }
+    load()
+  } catch (e: any) {
+    appStore.showError(e?.message ?? 'Failed')
+  } finally { saving.value = false }
+}
+
+// ── Batch import (CSV: email,password[,username] per line) ─────────────────
+function openBatchImport() {
+  batchImportText.value = ''
+  batchResult.value = null
+  showBatchImportDialog.value = true
+}
+
+function closeBatchImport() {
+  showBatchImportDialog.value = false
+  batchResult.value = null
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+const batchPreview = computed(() => {
+  const lines = batchImportText.value.split(/\r?\n/)
+  const validRows: { email: string; password: string; username: string }[] = []
+  let invalidCount = 0
+  for (const raw of lines) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#')) continue
+    const cells = line.split(',').map(c => c.trim())
+    const email = cells[0] ?? ''
+    const password = cells[1] ?? ''
+    const username = cells[2] ?? ''
+    if (!EMAIL_RE.test(email) || password.length < 8) {
+      invalidCount++
+      continue
+    }
+    validRows.push({ email, password, username })
+  }
+  return { validRows, invalidCount }
+})
+
+const batchFailedRows = computed(() => batchResult.value?.rows.filter(r => r.error) ?? [])
+
+async function handleBatchImport() {
+  const rows = batchPreview.value.validRows
+  if (rows.length === 0) return
+  saving.value = true
+  batchResult.value = null
+  try {
+    const result = await teamAPI.bulkCreateMembers(props.source, props.teamId, rows)
+    batchResult.value = result
+    if (result.failed === 0) {
+      appStore.showSuccess(t('team.members.batchImportAllOk', { count: result.succeeded }))
+      showBatchImportDialog.value = false
+    } else {
+      appStore.showError(t('team.members.batchImportPartial', { succeeded: result.succeeded, failed: result.failed }))
+    }
     load()
   } catch (e: any) {
     appStore.showError(e?.message ?? 'Failed')

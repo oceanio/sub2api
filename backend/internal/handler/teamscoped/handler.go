@@ -558,6 +558,40 @@ type createMemberRequest struct {
 	Username string `json:"username"`
 }
 
+type batchCreateMembersRequest struct {
+	Rows []createMemberRequest `json:"rows" binding:"required,min=1,max=200,dive"`
+}
+
+// BulkCreateMembers POST .../members/batch — create N new users and add them
+// to the team. Each row is its own tx; the response carries per-row outcome
+// so the frontend can show "47 succeeded, 3 failed" and let the operator fix
+// just the failed rows.
+func (h *Handler) BulkCreateMembers(c *gin.Context) {
+	teamID, ok := resolveTeamID(c)
+	if !ok {
+		return
+	}
+	var req batchCreateMembersRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	rows := make([]service.BulkCreateMemberRow, 0, len(req.Rows))
+	for _, r := range req.Rows {
+		rows = append(rows, service.BulkCreateMemberRow{
+			Email:    r.Email,
+			Password: r.Password,
+			Username: r.Username,
+		})
+	}
+	result, err := h.teamService.BulkCreateMembersUsers(reqCtx(c), teamID, rows, operatorID(c))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
 // CreateMember POST /api/v1/team/:teamId/members
 //          and POST /api/v1/admin/teams/:id/members/new
 // Creates a NEW user account and adds them to the team in one transaction.

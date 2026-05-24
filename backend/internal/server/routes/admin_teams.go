@@ -31,6 +31,7 @@ func registerAdminTeamRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		teams.DELETE("/:id/members/:memberID", h.TeamScoped.RemoveMember)
 		teams.PUT("/:id/members/:memberID/sub-quota", h.TeamScoped.UpdateMemberSubQuota)
 		teams.POST("/:id/members/new", h.TeamScoped.CreateMember)
+		teams.POST("/:id/members/batch", h.TeamScoped.BulkCreateMembers)
 		teams.GET("/:id/members/:memberID", h.TeamScoped.GetMember)
 		teams.PUT("/:id/members/:memberID/tags", h.TeamScoped.UpdateMemberTags)
 		teams.PUT("/:id/members/:memberID/password", h.TeamScoped.ResetMemberPassword)

@@ -339,6 +339,73 @@ func (s *TeamService) ListTeamAdmins(ctx context.Context, teamID int64) ([]TeamA
 
 // ── team_admin operations ──────────────────────────────────────────────────────
 
+// BulkCreateMemberRow is one entry in a batch-import request. Validation lives
+// on CreateTeamMemberUserRequest already, so the bulk wrapper only adds the
+// per-row index for result correlation on the frontend.
+type BulkCreateMemberRow struct {
+	Email    string
+	Password string
+	Username string
+}
+
+// BulkCreateMemberRowResult is the per-row outcome the frontend uses to render
+// "47 succeeded, 3 failed (see reasons)" feedback.
+type BulkCreateMemberRowResult struct {
+	Index  int          `json:"index"`           // 0-based row index from the request
+	Email  string       `json:"email"`
+	Member *TeamMember  `json:"member,omitempty"` // nil on failure
+	Error  string       `json:"error,omitempty"`  // empty on success
+}
+
+// BulkCreateMembersResult summarises a batch run for the response body.
+type BulkCreateMembersResult struct {
+	Total     int                         `json:"total"`
+	Succeeded int                         `json:"succeeded"`
+	Failed    int                         `json:"failed"`
+	Rows      []BulkCreateMemberRowResult `json:"rows"`
+}
+
+// BulkCreateMembersUsers iterates CreateMemberUser per row. Each row is its
+// own tx, so duplicate-email or cap-reached on row N leaves rows 0..N-1
+// committed — partial-success is intentional (matches the CSV-paste UX of
+// "fix the 3 broken rows and retry").
+//
+// The cap is re-checked inside each iteration via CreateMemberUser, so the
+// run stops naturally once the team hits its max_members limit.
+func (s *TeamService) BulkCreateMembersUsers(ctx context.Context, teamID int64, rows []BulkCreateMemberRow, operatorID int64) (*BulkCreateMembersResult, error) {
+	if err := s.requireTeamAdmin(ctx, teamID, operatorID); err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("at least one row required")
+	}
+
+	result := &BulkCreateMembersResult{
+		Total: len(rows),
+		Rows:  make([]BulkCreateMemberRowResult, 0, len(rows)),
+	}
+
+	for i, row := range rows {
+		entry := BulkCreateMemberRowResult{Index: i, Email: row.Email}
+		member, err := s.CreateMemberUser(ctx, CreateTeamMemberUserRequest{
+			TeamID:     teamID,
+			Email:      row.Email,
+			Password:   row.Password,
+			Username:   row.Username,
+			OperatorID: operatorID,
+		})
+		if err != nil {
+			entry.Error = err.Error()
+			result.Failed++
+		} else {
+			entry.Member = member
+			result.Succeeded++
+		}
+		result.Rows = append(result.Rows, entry)
+	}
+	return result, nil
+}
+
 // CreateMemberUser creates a new user account and adds them to the team in a
 // single transaction. Refuses if the email already exists on the platform.
 func (s *TeamService) CreateMemberUser(ctx context.Context, req CreateTeamMemberUserRequest) (*TeamMember, error) {

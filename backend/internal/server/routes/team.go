@@ -49,6 +49,7 @@ func RegisterTeamRoutes(
 
 			// Shared (also routed under /admin/teams/:id/members/* in admin_teams.go).
 			members.POST("", h.TeamScoped.CreateMember)
+			members.POST("/batch", h.TeamScoped.BulkCreateMembers)
 			members.GET("/:memberID", h.TeamScoped.GetMember)
 			members.PUT("/:memberID/tags", h.TeamScoped.UpdateMemberTags)
 			members.PUT("/:memberID/password", h.TeamScoped.ResetMemberPassword)

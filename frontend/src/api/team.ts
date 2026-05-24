@@ -160,6 +160,41 @@ export async function createMember(
   return data
 }
 
+export interface BulkCreateMemberRow {
+  email: string
+  password: string
+  username?: string
+}
+
+export interface BulkCreateMemberRowResult {
+  index: number
+  email: string
+  member?: TeamMember
+  error?: string
+}
+
+export interface BulkCreateMembersResult {
+  total: number
+  succeeded: number
+  failed: number
+  rows: BulkCreateMemberRowResult[]
+}
+
+/** Batch-create new users and add to team in one request; each row is its
+ * own transaction so partial success is possible. Returned per-row result
+ * tells the frontend which rows to surface for retry. */
+export async function bulkCreateMembers(
+  source: Source,
+  teamId: number,
+  rows: BulkCreateMemberRow[],
+): Promise<BulkCreateMembersResult> {
+  const url = source === 'admin'
+    ? `/admin/teams/${teamId}/members/batch`
+    : `/team/${teamId}/members/batch`
+  const { data } = await apiClient.post<BulkCreateMembersResult>(url, { rows })
+  return data
+}
+
 /** Add an existing user as paying member (admin source only). */
 export async function adminAddMember(teamId: number, userID: number): Promise<TeamMember> {
   const { data } = await apiClient.post<TeamMember>(`/admin/teams/${teamId}/members`, {
@@ -486,6 +521,7 @@ export const teamAPI = {
   listMembers,
   getMember,
   createMember,
+  bulkCreateMembers,
   adminAddMember,
   removeMember,
   updateSubQuota,
