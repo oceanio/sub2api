@@ -44,6 +44,7 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 		SetName(key.Name).
 		SetStatus(key.Status).
 		SetNillableGroupID(key.GroupID).
+		SetNillableTeamID(key.TeamID).
 		SetNillableLastUsedAt(key.LastUsedAt).
 		SetQuota(key.Quota).
 		SetQuotaUsed(key.QuotaUsed).
@@ -321,6 +322,13 @@ func (r *apiKeyRepository) ListByUserID(ctx context.Context, userID int64, param
 			q = q.Where(apikey.GroupIDIsNil())
 		} else {
 			q = q.Where(apikey.GroupIDEQ(*filters.GroupID))
+		}
+	}
+	if filters.TeamID != nil {
+		if *filters.TeamID == 0 {
+			q = q.Where(apikey.TeamIDIsNil())
+		} else {
+			q = q.Where(apikey.TeamIDEQ(*filters.TeamID))
 		}
 	}
 
@@ -629,6 +637,7 @@ func apiKeyEntityToService(m *dbent.APIKey) *service.APIKey {
 		CreatedAt:     m.CreatedAt,
 		UpdatedAt:     m.UpdatedAt,
 		GroupID:       m.GroupID,
+		TeamID:        m.TeamID,
 		Quota:         m.Quota,
 		QuotaUsed:     m.QuotaUsed,
 		ExpiresAt:     m.ExpiresAt,

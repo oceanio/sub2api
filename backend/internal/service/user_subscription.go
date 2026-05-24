@@ -6,6 +6,7 @@ type UserSubscription struct {
 	ID      int64
 	UserID  int64
 	GroupID int64
+	TeamID  *int64 // 团队购买的订阅 → 非 nil；个人购买/admin 免费分配 → nil
 
 	StartsAt  time.Time
 	ExpiresAt time.Time

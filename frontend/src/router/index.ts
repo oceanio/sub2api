@@ -11,6 +11,7 @@ import { useNavigationLoadingState } from '@/composables/useNavigationLoading'
 import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import { getSetupStatus } from '@/api/setup'
 import { resolveCompletedSetupRedirectPath } from './setupRedirect'
+import { teamRoutes } from './team_routes'
 import { resolveDocumentTitle } from './title'
 
 /**
@@ -476,6 +477,9 @@ const routes: RouteRecordRaw[] = [
       descriptionKey: 'admin.subscriptions.description'
     }
   },
+  // Team-feature routes live in router/team_routes.ts to keep this file's
+  // team footprint to a single spread.
+  ...teamRoutes,
   {
     path: '/admin/accounts',
     name: 'AdminAccounts',

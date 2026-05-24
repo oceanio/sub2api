@@ -8059,6 +8059,7 @@ type postUsageBillingParams struct {
 	IsSubscriptionBill    bool
 	AccountRateMultiplier float64
 	APIKeyService         APIKeyQuotaUpdater
+	TeamMemberID          *int64 // snapshot.TeamMemberID, for sub_quota_used tracking
 }
 
 func (p *postUsageBillingParams) shouldDeductAPIKeyQuota() bool {
@@ -8199,6 +8200,11 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 	if p.IsSubscriptionBill && p.Subscription != nil && p.Cost.TotalCost > 0 {
 		cmd.SubscriptionID = &p.Subscription.ID
 		cmd.SubscriptionCost = p.Cost.ActualCost
+	} else if p.APIKey.TeamID != nil && p.Cost.ActualCost > 0 {
+		// Team key: deduct from team balance instead of user balance.
+		cmd.TeamID = p.APIKey.TeamID
+		cmd.TeamMemberID = p.TeamMemberID
+		cmd.TeamCost = p.Cost.ActualCost
 	} else if p.Cost.ActualCost > 0 {
 		cmd.BalanceCost = p.Cost.ActualCost
 	}
@@ -8618,6 +8624,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		IsSubscriptionBill:    isSubscriptionBilling,
 		AccountRateMultiplier: accountRateMultiplier,
 		APIKeyService:         input.APIKeyService,
+		TeamMemberID:          apiKey.TeamMemberID,
 	}, s.billingDeps(), s.usageBillingRepo)
 
 	if billingErr != nil {

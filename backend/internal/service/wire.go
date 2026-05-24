@@ -431,9 +431,13 @@ func ProvideAPIKeyService(
 	cache APIKeyCache,
 	cfg *config.Config,
 	billingCacheService *BillingCacheService,
+	entClient *dbent.Client,
+	teamMemberRepo TeamMemberRepository,
 ) *APIKeyService {
 	svc := NewAPIKeyService(apiKeyRepo, userRepo, groupRepo, userSubRepo, userGroupRateRepo, cache, cfg)
 	svc.SetRateLimitCacheInvalidator(billingCacheService)
+	svc.SetEntClient(entClient)
+	svc.SetTeamMemberRepository(teamMemberRepo)
 	return svc
 }
 
@@ -531,6 +535,7 @@ var ProviderSet = wire.NewSet(
 	ProvideChannelMonitorRunner,
 	NewChannelMonitorRequestTemplateService,
 	ProvideRequestDebugLogService,
+	NewTeamService,
 )
 
 // ProvidePaymentConfigService wraps NewPaymentConfigService to accept the named

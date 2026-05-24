@@ -151,6 +151,27 @@ func (r *userSubscriptionRepository) ListByUserID(ctx context.Context, userID in
 	return userSubscriptionEntitiesToService(subs), nil
 }
 
+func (r *userSubscriptionRepository) ListByTeamID(ctx context.Context, teamID int64, params pagination.PaginationParams) ([]service.UserSubscription, *pagination.PaginationResult, error) {
+	client := clientFromContext(ctx, r.client)
+	q := client.UserSubscription.Query().Where(usersubscription.TeamIDEQ(teamID))
+
+	total, err := q.Count(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	subs, err := q.
+		WithUser().
+		WithGroup().
+		Order(dbent.Desc(usersubscription.FieldCreatedAt)).
+		Offset(params.Offset()).
+		Limit(params.Limit()).
+		All(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return userSubscriptionEntitiesToService(subs), paginationResultFromTotal(int64(total), params), nil
+}
+
 func (r *userSubscriptionRepository) ListActiveByUserID(ctx context.Context, userID int64) ([]service.UserSubscription, error) {
 	client := clientFromContext(ctx, r.client)
 	subs, err := client.UserSubscription.Query().
@@ -433,6 +454,7 @@ func userSubscriptionEntityToService(m *dbent.UserSubscription) *service.UserSub
 		ID:                 m.ID,
 		UserID:             m.UserID,
 		GroupID:            m.GroupID,
+		TeamID:             m.TeamID,
 		StartsAt:           m.StartsAt,
 		ExpiresAt:          m.ExpiresAt,
 		Status:             m.Status,

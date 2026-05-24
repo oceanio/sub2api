@@ -68,6 +68,14 @@ type Tx struct {
 	SubscriptionPlan *SubscriptionPlanClient
 	// TLSFingerprintProfile is the client for interacting with the TLSFingerprintProfile builders.
 	TLSFingerprintProfile *TLSFingerprintProfileClient
+	// Team is the client for interacting with the Team builders.
+	Team *TeamClient
+	// TeamAdmin is the client for interacting with the TeamAdmin builders.
+	TeamAdmin *TeamAdminClient
+	// TeamBalanceLog is the client for interacting with the TeamBalanceLog builders.
+	TeamBalanceLog *TeamBalanceLogClient
+	// TeamMember is the client for interacting with the TeamMember builders.
+	TeamMember *TeamMemberClient
 	// UsageCleanupTask is the client for interacting with the UsageCleanupTask builders.
 	UsageCleanupTask *UsageCleanupTaskClient
 	// UsageLog is the client for interacting with the UsageLog builders.
@@ -240,6 +248,10 @@ func (tx *Tx) init() {
 	tx.Setting = NewSettingClient(tx.config)
 	tx.SubscriptionPlan = NewSubscriptionPlanClient(tx.config)
 	tx.TLSFingerprintProfile = NewTLSFingerprintProfileClient(tx.config)
+	tx.Team = NewTeamClient(tx.config)
+	tx.TeamAdmin = NewTeamAdminClient(tx.config)
+	tx.TeamBalanceLog = NewTeamBalanceLogClient(tx.config)
+	tx.TeamMember = NewTeamMemberClient(tx.config)
 	tx.UsageCleanupTask = NewUsageCleanupTaskClient(tx.config)
 	tx.UsageLog = NewUsageLogClient(tx.config)
 	tx.User = NewUserClient(tx.config)

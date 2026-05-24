@@ -92,6 +92,7 @@ type BillingCacheService struct {
 	apiKeyRateLimitLoader apiKeyRateLimitLoader
 	userRPMCache          UserRPMCache
 	userGroupRateRepo     UserGroupRateRepository
+	teamRepo              TeamRepository // optional; set via SetTeamRepository for team billing preflight
 	cfg                   *config.Config
 	circuitBreaker        *billingCircuitBreaker
 
@@ -130,6 +131,13 @@ func NewBillingCacheService(
 	svc.circuitBreaker = newBillingCircuitBreaker(cfg.Billing.CircuitBreaker)
 	svc.startCacheWriteWorkers()
 	return svc
+}
+
+// SetTeamRepository wires the team repository for team-balance preflight.
+// Optional dependency: nil means team key requests bypass the balance preflight
+// (deduct-after-fact still applies; next request will be rejected on negative balance).
+func (s *BillingCacheService) SetTeamRepository(repo TeamRepository) {
+	s.teamRepo = repo
 }
 
 // Stop 关闭缓存写入工作池
@@ -671,16 +679,24 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 		return ErrBillingServiceUnavailable
 	}
 
-	// 判断计费模式
-	isSubscriptionMode := group != nil && group.IsSubscriptionType() && subscription != nil
-
-	if isSubscriptionMode {
-		if err := s.checkSubscriptionEligibility(ctx, user.ID, group, subscription); err != nil {
+	// Team key billing: check team balance + per-member sub_quota.
+	if apiKey != nil && apiKey.TeamID != nil {
+		if err := s.checkTeamBillingEligibility(ctx, apiKey); err != nil {
 			return err
 		}
+		// RPM checks still apply — fall through to checkRPM.
 	} else {
-		if err := s.checkBalanceEligibility(ctx, user.ID); err != nil {
-			return err
+		// 判断计费模式
+		isSubscriptionMode := group != nil && group.IsSubscriptionType() && subscription != nil
+
+		if isSubscriptionMode {
+			if err := s.checkSubscriptionEligibility(ctx, user.ID, group, subscription); err != nil {
+				return err
+			}
+		} else {
+			if err := s.checkBalanceEligibility(ctx, user.ID); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -696,6 +712,28 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 		return err
 	}
 
+	return nil
+}
+
+// checkTeamBillingEligibility checks team balance > 0 and sub_quota not exhausted.
+// Mirrors checkBalanceEligibility for the personal path: deduct-after-fact, rely on
+// next-request preflight to reject when balance goes non-positive.
+func (s *BillingCacheService) checkTeamBillingEligibility(ctx context.Context, apiKey *APIKey) error {
+	// Sub-quota check: if limit > 0 and used >= limit, deny.
+	if apiKey.SubQuota > 0 && apiKey.SubQuotaUsed >= apiKey.SubQuota {
+		return ErrInsufficientBalance // reuse; frontend can interpret as "sub-quota exhausted"
+	}
+	// Team balance check. Reads from DB (no Redis cache layer for teams yet).
+	if s.teamRepo == nil || apiKey.TeamID == nil {
+		return nil
+	}
+	team, err := s.teamRepo.GetByID(ctx, *apiKey.TeamID)
+	if err != nil {
+		return ErrBillingServiceUnavailable.WithCause(err)
+	}
+	if team.Balance <= 0 {
+		return ErrInsufficientBalance
+	}
 	return nil
 }
 

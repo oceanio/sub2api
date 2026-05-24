@@ -1,3 +1,5 @@
+import { teamMessages } from './team_en'
+
 export default {
   // Home Page
   home: {
@@ -265,6 +267,7 @@ export default {
     search: 'Search',
     filter: 'Filter',
     export: 'Export',
+    exporting: 'Exporting...',
     import: 'Import',
     actions: 'Actions',
     status: 'Status',
@@ -297,6 +300,8 @@ export default {
     balance: 'Balance',
     available: 'Available',
     copiedToClipboard: 'Copied to clipboard',
+    detail: 'Detail',
+    manage: 'Manage',
     copied: 'Copied',
     copyFailed: 'Failed to copy',
     verifying: 'Verifying...',
@@ -842,6 +847,12 @@ export default {
     totalRequests: 'Total Requests',
     totalTokens: 'Total Tokens',
     totalCost: 'Total Cost',
+    inputTokens: 'Input Tokens',
+    outputTokens: 'Output Tokens',
+    modelFilter: 'Model',
+    allUsers: 'All Members',
+    dateRange: 'Date Range',
+    contentHidden: 'Request bodies are hidden; only metadata shown.',
     standardCost: 'Standard',
     actualCost: 'Actual',
     accountCost: 'Cost',
@@ -6986,5 +6997,8 @@ export default {
       },
     },
   },
+
+  // Team-feature translations live in ./team_en.ts.
+  team: teamMessages,
 
 }

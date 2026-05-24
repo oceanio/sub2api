@@ -33,6 +33,10 @@ type APIKey struct {
 	Key         string
 	Name        string
 	GroupID     *int64
+	TeamID       *int64  // non-nil = team key; deduct from team balance
+	TeamMemberID *int64  // team_members.id for sub_quota_used tracking (transient, from auth snapshot)
+	SubQuota     float64 // per-member spend cap (transient, from auth snapshot)
+	SubQuotaUsed float64 // current accumulated spend (transient, from auth snapshot)
 	Status      string
 	IPWhitelist []string
 	IPBlacklist []string
@@ -140,4 +144,5 @@ type APIKeyListFilters struct {
 	Search  string
 	Status  string
 	GroupID *int64 // nil=不筛选, 0=无分组, >0=指定分组
+	TeamID  *int64 // nil=不筛选, 0=无团队, >0=指定团队
 }

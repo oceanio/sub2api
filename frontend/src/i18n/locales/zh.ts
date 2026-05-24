@@ -1,3 +1,5 @@
+import { teamMessages } from './team_zh'
+
 export default {
   // Home Page
   home: {
@@ -265,6 +267,7 @@ export default {
     search: '搜索',
     filter: '筛选',
     export: '导出',
+    exporting: '导出中...',
     import: '导入',
     actions: '操作',
     status: '状态',
@@ -297,6 +300,8 @@ export default {
     balance: '余额',
     available: '可用',
     copiedToClipboard: '已复制到剪贴板',
+    detail: '详情',
+    manage: '管理',
     copied: '已复制',
     copyFailed: '复制失败',
     verifying: '验证中...',
@@ -846,6 +851,12 @@ export default {
     totalRequests: '总请求数',
     totalTokens: '总 Token',
     totalCost: '总消费',
+    inputTokens: '输入 Token',
+    outputTokens: '输出 Token',
+    modelFilter: '模型',
+    allUsers: '全部成员',
+    dateRange: '时间区间',
+    contentHidden: '请求内容不可见，仅展示元数据。',
     standardCost: '标准',
     actualCost: '实际',
     accountCost: '成本',
@@ -7168,5 +7179,8 @@ export default {
       },
     },
   },
+
+  // Team-feature translations live in ./team_zh.ts.
+  team: teamMessages,
 
 }

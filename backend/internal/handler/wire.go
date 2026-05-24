@@ -2,6 +2,7 @@ package handler
 
 import (
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
+	"github.com/Wei-Shaw/sub2api/internal/handler/teamscoped"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/google/wire"
@@ -40,6 +41,7 @@ func ProvideAdminHandlers(
 	paymentHandler *admin.PaymentHandler,
 	affiliateHandler *admin.AffiliateHandler,
 	debugLogHandler *admin.RequestDebugLogHandler,
+	teamHandler *admin.AdminTeamHandler,
 ) *AdminHandlers {
 	return &AdminHandlers{
 		Dashboard:              dashboardHandler,
@@ -73,6 +75,7 @@ func ProvideAdminHandlers(
 		Payment:                paymentHandler,
 		Affiliate:              affiliateHandler,
 		DebugLog:               debugLogHandler,
+		Team:                   teamHandler,
 	}
 }
 
@@ -113,6 +116,8 @@ func ProvideHandlers(
 	paymentHandler *PaymentHandler,
 	paymentWebhookHandler *PaymentWebhookHandler,
 	availableChannelHandler *AvailableChannelHandler,
+	teamHandler *TeamHandler,
+	teamScopedHandler *teamscoped.Handler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 ) *Handlers {
@@ -133,6 +138,8 @@ func ProvideHandlers(
 		Payment:          paymentHandler,
 		PaymentWebhook:   paymentWebhookHandler,
 		AvailableChannel: availableChannelHandler,
+		Team:             teamHandler,
+		TeamScoped:       teamScopedHandler,
 	}
 }
 
@@ -187,6 +194,9 @@ var ProviderSet = wire.NewSet(
 	admin.NewPaymentHandler,
 	admin.NewAffiliateHandler,
 	admin.NewRequestDebugLogHandler,
+	admin.NewAdminTeamHandler,
+	NewTeamHandler,
+	teamscoped.NewHandler,
 
 	// AdminHandlers and Handlers constructors
 	ProvideAdminHandlers,

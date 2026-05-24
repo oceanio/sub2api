@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
@@ -200,6 +201,8 @@ type APIKeyService struct {
 	userGroupRateRepo     UserGroupRateRepository
 	cache                 APIKeyCache
 	rateLimitCacheInvalid RateLimitCacheInvalidator // optional: invalidate Redis rate limit cache
+	entClient             *dbent.Client             // optional: for batched transactional ops (bulk import)
+	teamMemberRepo        TeamMemberRepository      // optional: for team billing in auth snapshot
 	cfg                   *config.Config
 	authCacheL1           *ristretto.Cache
 	authCfg               apiKeyAuthCacheConfig
@@ -235,6 +238,16 @@ func NewAPIKeyService(
 // Called after construction (e.g. in wire) to avoid circular dependencies.
 func (s *APIKeyService) SetRateLimitCacheInvalidator(inv RateLimitCacheInvalidator) {
 	s.rateLimitCacheInvalid = inv
+}
+
+// SetEntClient injects the ent client for service-level transactional operations.
+func (s *APIKeyService) SetEntClient(c *dbent.Client) {
+	s.entClient = c
+}
+
+// SetTeamMemberRepository injects the team member repo for auth snapshot population.
+func (s *APIKeyService) SetTeamMemberRepository(repo TeamMemberRepository) {
+	s.teamMemberRepo = repo
 }
 
 func (s *APIKeyService) compileAPIKeyIPRules(apiKey *APIKey) {
@@ -395,12 +408,21 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		}
 	}
 
+	// Auto-fill team_id: if the user is an active team member, the key belongs to that team.
+	var teamID *int64
+	if s.teamMemberRepo != nil {
+		if member, err := s.teamMemberRepo.GetByUserID(ctx, userID); err == nil && member != nil {
+			teamID = &member.TeamID
+		}
+	}
+
 	// 创建API Key记录
 	apiKey := &APIKey{
 		UserID:      userID,
 		Key:         key,
 		Name:        req.Name,
 		GroupID:     req.GroupID,
+		TeamID:      teamID,
 		Status:      StatusActive,
 		IPWhitelist: req.IPWhitelist,
 		IPBlacklist: req.IPBlacklist,

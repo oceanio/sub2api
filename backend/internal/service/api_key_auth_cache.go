@@ -26,6 +26,13 @@ type APIKeyAuthSnapshot struct {
 	RateLimit5h float64 `json:"rate_limit_5h"`
 	RateLimit1d float64 `json:"rate_limit_1d"`
 	RateLimit7d float64 `json:"rate_limit_7d"`
+
+	// Team billing fields. Non-nil means this key belongs to a team and should
+	// deduct from teams.balance instead of user.balance.
+	TeamID       *int64  `json:"team_id,omitempty"`
+	TeamMemberID *int64  `json:"team_member_id,omitempty"` // team_members.id for sub_quota tracking
+	SubQuota     float64 `json:"sub_quota,omitempty"`      // per-member spend cap (0 = unlimited)
+	SubQuotaUsed float64 `json:"sub_quota_used,omitempty"` // current accumulated spend
 }
 
 // APIKeyAuthUserSnapshot 用户快照

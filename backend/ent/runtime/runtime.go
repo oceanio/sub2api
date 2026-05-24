@@ -32,6 +32,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
 	"github.com/Wei-Shaw/sub2api/ent/setting"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
+	"github.com/Wei-Shaw/sub2api/ent/team"
+	"github.com/Wei-Shaw/sub2api/ent/teamadmin"
+	"github.com/Wei-Shaw/sub2api/ent/teambalancelog"
+	"github.com/Wei-Shaw/sub2api/ent/teammember"
 	"github.com/Wei-Shaw/sub2api/ent/tlsfingerprintprofile"
 	"github.com/Wei-Shaw/sub2api/ent/usagecleanuptask"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
@@ -1563,6 +1567,107 @@ func init() {
 	tlsfingerprintprofileDescEnableGrease := tlsfingerprintprofileFields[2].Descriptor()
 	// tlsfingerprintprofile.DefaultEnableGrease holds the default value on creation for the enable_grease field.
 	tlsfingerprintprofile.DefaultEnableGrease = tlsfingerprintprofileDescEnableGrease.Default.(bool)
+	teamMixin := schema.Team{}.Mixin()
+	teamMixinHooks1 := teamMixin[1].Hooks()
+	team.Hooks[0] = teamMixinHooks1[0]
+	teamMixinInters1 := teamMixin[1].Interceptors()
+	team.Interceptors[0] = teamMixinInters1[0]
+	teamMixinFields0 := teamMixin[0].Fields()
+	_ = teamMixinFields0
+	teamFields := schema.Team{}.Fields()
+	_ = teamFields
+	// teamDescCreatedAt is the schema descriptor for created_at field.
+	teamDescCreatedAt := teamMixinFields0[0].Descriptor()
+	// team.DefaultCreatedAt holds the default value on creation for the created_at field.
+	team.DefaultCreatedAt = teamDescCreatedAt.Default.(func() time.Time)
+	// teamDescUpdatedAt is the schema descriptor for updated_at field.
+	teamDescUpdatedAt := teamMixinFields0[1].Descriptor()
+	// team.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	team.DefaultUpdatedAt = teamDescUpdatedAt.Default.(func() time.Time)
+	// team.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	team.UpdateDefaultUpdatedAt = teamDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// teamDescName is the schema descriptor for name field.
+	teamDescName := teamFields[0].Descriptor()
+	// team.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	team.NameValidator = func() func(string) error {
+		validators := teamDescName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(name string) error {
+			for _, fn := range fns {
+				if err := fn(name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// teamDescBalance is the schema descriptor for balance field.
+	teamDescBalance := teamFields[1].Descriptor()
+	// team.DefaultBalance holds the default value on creation for the balance field.
+	team.DefaultBalance = teamDescBalance.Default.(float64)
+	// teamDescMaxMembers is the schema descriptor for max_members field.
+	teamDescMaxMembers := teamFields[3].Descriptor()
+	// team.DefaultMaxMembers holds the default value on creation for the max_members field.
+	team.DefaultMaxMembers = teamDescMaxMembers.Default.(int)
+	teamadminMixin := schema.TeamAdmin{}.Mixin()
+	teamadminMixinHooks1 := teamadminMixin[1].Hooks()
+	teamadmin.Hooks[0] = teamadminMixinHooks1[0]
+	teamadminMixinInters1 := teamadminMixin[1].Interceptors()
+	teamadmin.Interceptors[0] = teamadminMixinInters1[0]
+	teamadminMixinFields0 := teamadminMixin[0].Fields()
+	_ = teamadminMixinFields0
+	teamadminFields := schema.TeamAdmin{}.Fields()
+	_ = teamadminFields
+	// teamadminDescCreatedAt is the schema descriptor for created_at field.
+	teamadminDescCreatedAt := teamadminMixinFields0[0].Descriptor()
+	// teamadmin.DefaultCreatedAt holds the default value on creation for the created_at field.
+	teamadmin.DefaultCreatedAt = teamadminDescCreatedAt.Default.(func() time.Time)
+	// teamadminDescUpdatedAt is the schema descriptor for updated_at field.
+	teamadminDescUpdatedAt := teamadminMixinFields0[1].Descriptor()
+	// teamadmin.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	teamadmin.DefaultUpdatedAt = teamadminDescUpdatedAt.Default.(func() time.Time)
+	// teamadmin.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	teamadmin.UpdateDefaultUpdatedAt = teamadminDescUpdatedAt.UpdateDefault.(func() time.Time)
+	teambalancelogFields := schema.TeamBalanceLog{}.Fields()
+	_ = teambalancelogFields
+	// teambalancelogDescType is the schema descriptor for type field.
+	teambalancelogDescType := teambalancelogFields[1].Descriptor()
+	// teambalancelog.TypeValidator is a validator for the "type" field. It is called by the builders before save.
+	teambalancelog.TypeValidator = teambalancelogDescType.Validators[0].(func(string) error)
+	// teambalancelogDescCreatedAt is the schema descriptor for created_at field.
+	teambalancelogDescCreatedAt := teambalancelogFields[6].Descriptor()
+	// teambalancelog.DefaultCreatedAt holds the default value on creation for the created_at field.
+	teambalancelog.DefaultCreatedAt = teambalancelogDescCreatedAt.Default.(func() time.Time)
+	teammemberMixin := schema.TeamMember{}.Mixin()
+	teammemberMixinHooks1 := teammemberMixin[1].Hooks()
+	teammember.Hooks[0] = teammemberMixinHooks1[0]
+	teammemberMixinInters1 := teammemberMixin[1].Interceptors()
+	teammember.Interceptors[0] = teammemberMixinInters1[0]
+	teammemberMixinFields0 := teammemberMixin[0].Fields()
+	_ = teammemberMixinFields0
+	teammemberFields := schema.TeamMember{}.Fields()
+	_ = teammemberFields
+	// teammemberDescCreatedAt is the schema descriptor for created_at field.
+	teammemberDescCreatedAt := teammemberMixinFields0[0].Descriptor()
+	// teammember.DefaultCreatedAt holds the default value on creation for the created_at field.
+	teammember.DefaultCreatedAt = teammemberDescCreatedAt.Default.(func() time.Time)
+	// teammemberDescUpdatedAt is the schema descriptor for updated_at field.
+	teammemberDescUpdatedAt := teammemberMixinFields0[1].Descriptor()
+	// teammember.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	teammember.DefaultUpdatedAt = teammemberDescUpdatedAt.Default.(func() time.Time)
+	// teammember.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	teammember.UpdateDefaultUpdatedAt = teammemberDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// teammemberDescSubQuota is the schema descriptor for sub_quota field.
+	teammemberDescSubQuota := teammemberFields[2].Descriptor()
+	// teammember.DefaultSubQuota holds the default value on creation for the sub_quota field.
+	teammember.DefaultSubQuota = teammemberDescSubQuota.Default.(float64)
+	// teammemberDescSubQuotaUsed is the schema descriptor for sub_quota_used field.
+	teammemberDescSubQuotaUsed := teammemberFields[3].Descriptor()
+	// teammember.DefaultSubQuotaUsed holds the default value on creation for the sub_quota_used field.
+	teammember.DefaultSubQuotaUsed = teammemberDescSubQuotaUsed.Default.(float64)
 	usagecleanuptaskMixin := schema.UsageCleanupTask{}.Mixin()
 	usagecleanuptaskMixinFields0 := usagecleanuptaskMixin[0].Fields()
 	_ = usagecleanuptaskMixinFields0

@@ -112,7 +112,17 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 		}
 	}
 
-	if cmd.BalanceCost > 0 {
+	if cmd.TeamCost > 0 && cmd.TeamID != nil {
+		// Deduct from team balance and update member sub_quota_used.
+		if err := deductUsageBillingTeamBalance(ctx, tx, *cmd.TeamID, cmd.TeamCost); err != nil {
+			return err
+		}
+		if cmd.TeamMemberID != nil {
+			if err := incrementTeamMemberSubQuotaUsed(ctx, tx, *cmd.TeamMemberID, cmd.TeamCost); err != nil {
+				return err
+			}
+		}
+	} else if cmd.BalanceCost > 0 {
 		newBalance, err := deductUsageBillingBalance(ctx, tx, cmd.UserID, cmd.BalanceCost)
 		if err != nil {
 			return err
@@ -334,4 +344,34 @@ func incrementUsageBillingAccountQuota(ctx context.Context, tx *sql.Tx, accountI
 		}
 	}
 	return &state, nil
+}
+
+// deductUsageBillingTeamBalance 与 deductUsageBillingBalance 对称：无条件扣，
+// 允许短暂负余额（spec §4.3 软超限语义）。下一次请求的 checkTeamBillingEligibility
+// 预检会因余额 <= 0 而拒绝，最终一致。
+func deductUsageBillingTeamBalance(ctx context.Context, tx *sql.Tx, teamID int64, amount float64) error {
+	res, err := tx.ExecContext(ctx, `
+		UPDATE teams
+		SET balance = balance - $1, updated_at = NOW()
+		WHERE id = $2 AND deleted_at IS NULL
+	`, amount, teamID)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrTeamNotFound
+	}
+	return nil
+}
+
+func incrementTeamMemberSubQuotaUsed(ctx context.Context, tx *sql.Tx, memberID int64, amount float64) error {
+	_, err := tx.ExecContext(ctx, `
+		UPDATE team_members SET sub_quota_used = sub_quota_used + $1, updated_at = NOW()
+		WHERE id = $2 AND deleted_at IS NULL
+	`, amount, memberID)
+	return err
 }

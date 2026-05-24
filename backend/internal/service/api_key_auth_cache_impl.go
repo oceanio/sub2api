@@ -245,6 +245,18 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 		}
 		// 查询失败或无 override 时留 nil，checkRPM 会回退到 DB 查询
 	}
+	// Populate team billing fields if this is a team key.
+	if apiKey.TeamID != nil && s.teamMemberRepo != nil {
+		member, err := s.teamMemberRepo.GetByUserID(ctx, apiKey.UserID)
+		if err == nil && member != nil && member.TeamID == *apiKey.TeamID {
+			memberID := member.ID
+			snapshot.TeamID = apiKey.TeamID
+			snapshot.TeamMemberID = &memberID
+			snapshot.SubQuota = member.SubQuota
+			snapshot.SubQuotaUsed = member.SubQuotaUsed
+		}
+	}
+
 	if apiKey.Group != nil {
 		snapshot.Group = &APIKeyAuthGroupSnapshot{
 			ID:                              apiKey.Group.ID,
@@ -283,10 +295,14 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 		return nil
 	}
 	apiKey := &APIKey{
-		ID:          snapshot.APIKeyID,
-		UserID:      snapshot.UserID,
-		GroupID:     snapshot.GroupID,
-		Key:         key,
+		ID:           snapshot.APIKeyID,
+		UserID:       snapshot.UserID,
+		GroupID:      snapshot.GroupID,
+		TeamID:       snapshot.TeamID,
+		TeamMemberID: snapshot.TeamMemberID,
+		SubQuota:     snapshot.SubQuota,
+		SubQuotaUsed: snapshot.SubQuotaUsed,
+		Key:          key,
 		Name:        snapshot.Name,
 		Status:      snapshot.Status,
 		IPWhitelist: snapshot.IPWhitelist,

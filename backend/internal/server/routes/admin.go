@@ -97,6 +97,9 @@ func RegisterAdminRoutes(
 
 		// 邀请返利（专属用户管理）
 		registerAffiliateRoutes(admin, h)
+
+		// 团队管理
+		registerAdminTeamRoutes(admin, h)
 	}
 }
 
@@ -645,3 +648,4 @@ func registerAffiliateRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		}
 	}
 }
+

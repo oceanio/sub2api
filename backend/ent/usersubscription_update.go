@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
+	"github.com/Wei-Shaw/sub2api/ent/team"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
@@ -304,6 +305,26 @@ func (_u *UserSubscriptionUpdate) ClearNotes() *UserSubscriptionUpdate {
 	return _u
 }
 
+// SetTeamID sets the "team_id" field.
+func (_u *UserSubscriptionUpdate) SetTeamID(v int64) *UserSubscriptionUpdate {
+	_u.mutation.SetTeamID(v)
+	return _u
+}
+
+// SetNillableTeamID sets the "team_id" field if the given value is not nil.
+func (_u *UserSubscriptionUpdate) SetNillableTeamID(v *int64) *UserSubscriptionUpdate {
+	if v != nil {
+		_u.SetTeamID(*v)
+	}
+	return _u
+}
+
+// ClearTeamID clears the value of the "team_id" field.
+func (_u *UserSubscriptionUpdate) ClearTeamID() *UserSubscriptionUpdate {
+	_u.mutation.ClearTeamID()
+	return _u
+}
+
 // SetUser sets the "user" edge to the User entity.
 func (_u *UserSubscriptionUpdate) SetUser(v *User) *UserSubscriptionUpdate {
 	return _u.SetUserID(v.ID)
@@ -331,6 +352,11 @@ func (_u *UserSubscriptionUpdate) SetNillableAssignedByUserID(id *int64) *UserSu
 // SetAssignedByUser sets the "assigned_by_user" edge to the User entity.
 func (_u *UserSubscriptionUpdate) SetAssignedByUser(v *User) *UserSubscriptionUpdate {
 	return _u.SetAssignedByUserID(v.ID)
+}
+
+// SetTeam sets the "team" edge to the Team entity.
+func (_u *UserSubscriptionUpdate) SetTeam(v *Team) *UserSubscriptionUpdate {
+	return _u.SetTeamID(v.ID)
 }
 
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
@@ -368,6 +394,12 @@ func (_u *UserSubscriptionUpdate) ClearGroup() *UserSubscriptionUpdate {
 // ClearAssignedByUser clears the "assigned_by_user" edge to the User entity.
 func (_u *UserSubscriptionUpdate) ClearAssignedByUser() *UserSubscriptionUpdate {
 	_u.mutation.ClearAssignedByUser()
+	return _u
+}
+
+// ClearTeam clears the "team" edge to the Team entity.
+func (_u *UserSubscriptionUpdate) ClearTeam() *UserSubscriptionUpdate {
+	_u.mutation.ClearTeam()
 	return _u
 }
 
@@ -605,6 +637,35 @@ func (_u *UserSubscriptionUpdate) sqlSave(ctx context.Context) (_node int, err e
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.TeamCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usersubscription.TeamTable,
+			Columns: []string{usersubscription.TeamColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.TeamIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usersubscription.TeamTable,
+			Columns: []string{usersubscription.TeamColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
@@ -950,6 +1011,26 @@ func (_u *UserSubscriptionUpdateOne) ClearNotes() *UserSubscriptionUpdateOne {
 	return _u
 }
 
+// SetTeamID sets the "team_id" field.
+func (_u *UserSubscriptionUpdateOne) SetTeamID(v int64) *UserSubscriptionUpdateOne {
+	_u.mutation.SetTeamID(v)
+	return _u
+}
+
+// SetNillableTeamID sets the "team_id" field if the given value is not nil.
+func (_u *UserSubscriptionUpdateOne) SetNillableTeamID(v *int64) *UserSubscriptionUpdateOne {
+	if v != nil {
+		_u.SetTeamID(*v)
+	}
+	return _u
+}
+
+// ClearTeamID clears the value of the "team_id" field.
+func (_u *UserSubscriptionUpdateOne) ClearTeamID() *UserSubscriptionUpdateOne {
+	_u.mutation.ClearTeamID()
+	return _u
+}
+
 // SetUser sets the "user" edge to the User entity.
 func (_u *UserSubscriptionUpdateOne) SetUser(v *User) *UserSubscriptionUpdateOne {
 	return _u.SetUserID(v.ID)
@@ -977,6 +1058,11 @@ func (_u *UserSubscriptionUpdateOne) SetNillableAssignedByUserID(id *int64) *Use
 // SetAssignedByUser sets the "assigned_by_user" edge to the User entity.
 func (_u *UserSubscriptionUpdateOne) SetAssignedByUser(v *User) *UserSubscriptionUpdateOne {
 	return _u.SetAssignedByUserID(v.ID)
+}
+
+// SetTeam sets the "team" edge to the Team entity.
+func (_u *UserSubscriptionUpdateOne) SetTeam(v *Team) *UserSubscriptionUpdateOne {
+	return _u.SetTeamID(v.ID)
 }
 
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
@@ -1014,6 +1100,12 @@ func (_u *UserSubscriptionUpdateOne) ClearGroup() *UserSubscriptionUpdateOne {
 // ClearAssignedByUser clears the "assigned_by_user" edge to the User entity.
 func (_u *UserSubscriptionUpdateOne) ClearAssignedByUser() *UserSubscriptionUpdateOne {
 	_u.mutation.ClearAssignedByUser()
+	return _u
+}
+
+// ClearTeam clears the "team" edge to the Team entity.
+func (_u *UserSubscriptionUpdateOne) ClearTeam() *UserSubscriptionUpdateOne {
+	_u.mutation.ClearTeam()
 	return _u
 }
 
@@ -1281,6 +1373,35 @@ func (_u *UserSubscriptionUpdateOne) sqlSave(ctx context.Context) (_node *UserSu
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.TeamCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usersubscription.TeamTable,
+			Columns: []string{usersubscription.TeamColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.TeamIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usersubscription.TeamTable,
+			Columns: []string{usersubscription.TeamColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

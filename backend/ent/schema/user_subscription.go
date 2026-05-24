@@ -79,6 +79,12 @@ func (UserSubscription) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "text"}),
+
+		// Team purchase tracking
+		field.Int64("team_id").
+			Optional().
+			Nillable().
+			Comment("Team that purchased this subscription. nil = user self-purchase or admin free assignment."),
 	}
 }
 
@@ -97,6 +103,10 @@ func (UserSubscription) Edges() []ent.Edge {
 		edge.From("assigned_by_user", User.Type).
 			Ref("assigned_subscriptions").
 			Field("assigned_by").
+			Unique(),
+		edge.From("team", Team.Type).
+			Ref("subscriptions").
+			Field("team_id").
 			Unique(),
 		edge.To("usage_logs", UsageLog.Type),
 	}

@@ -41,6 +41,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
 	"github.com/Wei-Shaw/sub2api/ent/setting"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
+	"github.com/Wei-Shaw/sub2api/ent/team"
+	"github.com/Wei-Shaw/sub2api/ent/teamadmin"
+	"github.com/Wei-Shaw/sub2api/ent/teambalancelog"
+	"github.com/Wei-Shaw/sub2api/ent/teammember"
 	"github.com/Wei-Shaw/sub2api/ent/tlsfingerprintprofile"
 	"github.com/Wei-Shaw/sub2api/ent/usagecleanuptask"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
@@ -112,6 +116,14 @@ type Client struct {
 	SubscriptionPlan *SubscriptionPlanClient
 	// TLSFingerprintProfile is the client for interacting with the TLSFingerprintProfile builders.
 	TLSFingerprintProfile *TLSFingerprintProfileClient
+	// Team is the client for interacting with the Team builders.
+	Team *TeamClient
+	// TeamAdmin is the client for interacting with the TeamAdmin builders.
+	TeamAdmin *TeamAdminClient
+	// TeamBalanceLog is the client for interacting with the TeamBalanceLog builders.
+	TeamBalanceLog *TeamBalanceLogClient
+	// TeamMember is the client for interacting with the TeamMember builders.
+	TeamMember *TeamMemberClient
 	// UsageCleanupTask is the client for interacting with the UsageCleanupTask builders.
 	UsageCleanupTask *UsageCleanupTaskClient
 	// UsageLog is the client for interacting with the UsageLog builders.
@@ -164,6 +176,10 @@ func (c *Client) init() {
 	c.Setting = NewSettingClient(c.config)
 	c.SubscriptionPlan = NewSubscriptionPlanClient(c.config)
 	c.TLSFingerprintProfile = NewTLSFingerprintProfileClient(c.config)
+	c.Team = NewTeamClient(c.config)
+	c.TeamAdmin = NewTeamAdminClient(c.config)
+	c.TeamBalanceLog = NewTeamBalanceLogClient(c.config)
+	c.TeamMember = NewTeamMemberClient(c.config)
 	c.UsageCleanupTask = NewUsageCleanupTaskClient(c.config)
 	c.UsageLog = NewUsageLogClient(c.config)
 	c.User = NewUserClient(c.config)
@@ -290,6 +306,10 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		Setting:                       NewSettingClient(cfg),
 		SubscriptionPlan:              NewSubscriptionPlanClient(cfg),
 		TLSFingerprintProfile:         NewTLSFingerprintProfileClient(cfg),
+		Team:                          NewTeamClient(cfg),
+		TeamAdmin:                     NewTeamAdminClient(cfg),
+		TeamBalanceLog:                NewTeamBalanceLogClient(cfg),
+		TeamMember:                    NewTeamMemberClient(cfg),
 		UsageCleanupTask:              NewUsageCleanupTaskClient(cfg),
 		UsageLog:                      NewUsageLogClient(cfg),
 		User:                          NewUserClient(cfg),
@@ -343,6 +363,10 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		Setting:                       NewSettingClient(cfg),
 		SubscriptionPlan:              NewSubscriptionPlanClient(cfg),
 		TLSFingerprintProfile:         NewTLSFingerprintProfileClient(cfg),
+		Team:                          NewTeamClient(cfg),
+		TeamAdmin:                     NewTeamAdminClient(cfg),
+		TeamBalanceLog:                NewTeamBalanceLogClient(cfg),
+		TeamMember:                    NewTeamMemberClient(cfg),
 		UsageCleanupTask:              NewUsageCleanupTaskClient(cfg),
 		UsageLog:                      NewUsageLogClient(cfg),
 		User:                          NewUserClient(cfg),
@@ -386,8 +410,9 @@ func (c *Client) Use(hooks ...Hook) {
 		c.IdempotencyRecord, c.IdentityAdoptionDecision, c.PaymentAuditLog,
 		c.PaymentOrder, c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode,
 		c.PromoCodeUsage, c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting,
-		c.SubscriptionPlan, c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog,
-		c.User, c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
+		c.SubscriptionPlan, c.TLSFingerprintProfile, c.Team, c.TeamAdmin,
+		c.TeamBalanceLog, c.TeamMember, c.UsageCleanupTask, c.UsageLog, c.User,
+		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
 		c.UserSubscription,
 	} {
 		n.Use(hooks...)
@@ -405,8 +430,9 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.IdempotencyRecord, c.IdentityAdoptionDecision, c.PaymentAuditLog,
 		c.PaymentOrder, c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode,
 		c.PromoCodeUsage, c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting,
-		c.SubscriptionPlan, c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog,
-		c.User, c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
+		c.SubscriptionPlan, c.TLSFingerprintProfile, c.Team, c.TeamAdmin,
+		c.TeamBalanceLog, c.TeamMember, c.UsageCleanupTask, c.UsageLog, c.User,
+		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
 		c.UserSubscription,
 	} {
 		n.Intercept(interceptors...)
@@ -470,6 +496,14 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.SubscriptionPlan.mutate(ctx, m)
 	case *TLSFingerprintProfileMutation:
 		return c.TLSFingerprintProfile.mutate(ctx, m)
+	case *TeamMutation:
+		return c.Team.mutate(ctx, m)
+	case *TeamAdminMutation:
+		return c.TeamAdmin.mutate(ctx, m)
+	case *TeamBalanceLogMutation:
+		return c.TeamBalanceLog.mutate(ctx, m)
+	case *TeamMemberMutation:
+		return c.TeamMember.mutate(ctx, m)
 	case *UsageCleanupTaskMutation:
 		return c.UsageCleanupTask.mutate(ctx, m)
 	case *UsageLogMutation:
@@ -622,6 +656,22 @@ func (c *APIKeyClient) QueryGroup(_m *APIKey) *GroupQuery {
 			sqlgraph.From(apikey.Table, apikey.FieldID, id),
 			sqlgraph.To(group.Table, group.FieldID),
 			sqlgraph.Edge(sqlgraph.M2O, true, apikey.GroupTable, apikey.GroupColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryTeam queries the team edge of a APIKey.
+func (c *APIKeyClient) QueryTeam(_m *APIKey) *TeamQuery {
+	query := (&TeamClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(apikey.Table, apikey.FieldID, id),
+			sqlgraph.To(team.Table, team.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, apikey.TeamTable, apikey.TeamColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -4695,6 +4745,704 @@ func (c *TLSFingerprintProfileClient) mutate(ctx context.Context, m *TLSFingerpr
 	}
 }
 
+// TeamClient is a client for the Team schema.
+type TeamClient struct {
+	config
+}
+
+// NewTeamClient returns a client for the Team from the given config.
+func NewTeamClient(c config) *TeamClient {
+	return &TeamClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `team.Hooks(f(g(h())))`.
+func (c *TeamClient) Use(hooks ...Hook) {
+	c.hooks.Team = append(c.hooks.Team, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `team.Intercept(f(g(h())))`.
+func (c *TeamClient) Intercept(interceptors ...Interceptor) {
+	c.inters.Team = append(c.inters.Team, interceptors...)
+}
+
+// Create returns a builder for creating a Team entity.
+func (c *TeamClient) Create() *TeamCreate {
+	mutation := newTeamMutation(c.config, OpCreate)
+	return &TeamCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of Team entities.
+func (c *TeamClient) CreateBulk(builders ...*TeamCreate) *TeamCreateBulk {
+	return &TeamCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *TeamClient) MapCreateBulk(slice any, setFunc func(*TeamCreate, int)) *TeamCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &TeamCreateBulk{err: fmt.Errorf("calling to TeamClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*TeamCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &TeamCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for Team.
+func (c *TeamClient) Update() *TeamUpdate {
+	mutation := newTeamMutation(c.config, OpUpdate)
+	return &TeamUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *TeamClient) UpdateOne(_m *Team) *TeamUpdateOne {
+	mutation := newTeamMutation(c.config, OpUpdateOne, withTeam(_m))
+	return &TeamUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *TeamClient) UpdateOneID(id int64) *TeamUpdateOne {
+	mutation := newTeamMutation(c.config, OpUpdateOne, withTeamID(id))
+	return &TeamUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for Team.
+func (c *TeamClient) Delete() *TeamDelete {
+	mutation := newTeamMutation(c.config, OpDelete)
+	return &TeamDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *TeamClient) DeleteOne(_m *Team) *TeamDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *TeamClient) DeleteOneID(id int64) *TeamDeleteOne {
+	builder := c.Delete().Where(team.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &TeamDeleteOne{builder}
+}
+
+// Query returns a query builder for Team.
+func (c *TeamClient) Query() *TeamQuery {
+	return &TeamQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeTeam},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a Team entity by its id.
+func (c *TeamClient) Get(ctx context.Context, id int64) (*Team, error) {
+	return c.Query().Where(team.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *TeamClient) GetX(ctx context.Context, id int64) *Team {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryMembers queries the members edge of a Team.
+func (c *TeamClient) QueryMembers(_m *Team) *TeamMemberQuery {
+	query := (&TeamMemberClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(team.Table, team.FieldID, id),
+			sqlgraph.To(teammember.Table, teammember.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, team.MembersTable, team.MembersColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryAdmins queries the admins edge of a Team.
+func (c *TeamClient) QueryAdmins(_m *Team) *TeamAdminQuery {
+	query := (&TeamAdminClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(team.Table, team.FieldID, id),
+			sqlgraph.To(teamadmin.Table, teamadmin.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, team.AdminsTable, team.AdminsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryBalanceLogs queries the balance_logs edge of a Team.
+func (c *TeamClient) QueryBalanceLogs(_m *Team) *TeamBalanceLogQuery {
+	query := (&TeamBalanceLogClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(team.Table, team.FieldID, id),
+			sqlgraph.To(teambalancelog.Table, teambalancelog.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, team.BalanceLogsTable, team.BalanceLogsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryAPIKeys queries the api_keys edge of a Team.
+func (c *TeamClient) QueryAPIKeys(_m *Team) *APIKeyQuery {
+	query := (&APIKeyClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(team.Table, team.FieldID, id),
+			sqlgraph.To(apikey.Table, apikey.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, team.APIKeysTable, team.APIKeysColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QuerySubscriptions queries the subscriptions edge of a Team.
+func (c *TeamClient) QuerySubscriptions(_m *Team) *UserSubscriptionQuery {
+	query := (&UserSubscriptionClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(team.Table, team.FieldID, id),
+			sqlgraph.To(usersubscription.Table, usersubscription.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, team.SubscriptionsTable, team.SubscriptionsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *TeamClient) Hooks() []Hook {
+	hooks := c.hooks.Team
+	return append(hooks[:len(hooks):len(hooks)], team.Hooks[:]...)
+}
+
+// Interceptors returns the client interceptors.
+func (c *TeamClient) Interceptors() []Interceptor {
+	inters := c.inters.Team
+	return append(inters[:len(inters):len(inters)], team.Interceptors[:]...)
+}
+
+func (c *TeamClient) mutate(ctx context.Context, m *TeamMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&TeamCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&TeamUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&TeamUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&TeamDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown Team mutation op: %q", m.Op())
+	}
+}
+
+// TeamAdminClient is a client for the TeamAdmin schema.
+type TeamAdminClient struct {
+	config
+}
+
+// NewTeamAdminClient returns a client for the TeamAdmin from the given config.
+func NewTeamAdminClient(c config) *TeamAdminClient {
+	return &TeamAdminClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `teamadmin.Hooks(f(g(h())))`.
+func (c *TeamAdminClient) Use(hooks ...Hook) {
+	c.hooks.TeamAdmin = append(c.hooks.TeamAdmin, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `teamadmin.Intercept(f(g(h())))`.
+func (c *TeamAdminClient) Intercept(interceptors ...Interceptor) {
+	c.inters.TeamAdmin = append(c.inters.TeamAdmin, interceptors...)
+}
+
+// Create returns a builder for creating a TeamAdmin entity.
+func (c *TeamAdminClient) Create() *TeamAdminCreate {
+	mutation := newTeamAdminMutation(c.config, OpCreate)
+	return &TeamAdminCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of TeamAdmin entities.
+func (c *TeamAdminClient) CreateBulk(builders ...*TeamAdminCreate) *TeamAdminCreateBulk {
+	return &TeamAdminCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *TeamAdminClient) MapCreateBulk(slice any, setFunc func(*TeamAdminCreate, int)) *TeamAdminCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &TeamAdminCreateBulk{err: fmt.Errorf("calling to TeamAdminClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*TeamAdminCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &TeamAdminCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for TeamAdmin.
+func (c *TeamAdminClient) Update() *TeamAdminUpdate {
+	mutation := newTeamAdminMutation(c.config, OpUpdate)
+	return &TeamAdminUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *TeamAdminClient) UpdateOne(_m *TeamAdmin) *TeamAdminUpdateOne {
+	mutation := newTeamAdminMutation(c.config, OpUpdateOne, withTeamAdmin(_m))
+	return &TeamAdminUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *TeamAdminClient) UpdateOneID(id int64) *TeamAdminUpdateOne {
+	mutation := newTeamAdminMutation(c.config, OpUpdateOne, withTeamAdminID(id))
+	return &TeamAdminUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for TeamAdmin.
+func (c *TeamAdminClient) Delete() *TeamAdminDelete {
+	mutation := newTeamAdminMutation(c.config, OpDelete)
+	return &TeamAdminDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *TeamAdminClient) DeleteOne(_m *TeamAdmin) *TeamAdminDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *TeamAdminClient) DeleteOneID(id int64) *TeamAdminDeleteOne {
+	builder := c.Delete().Where(teamadmin.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &TeamAdminDeleteOne{builder}
+}
+
+// Query returns a query builder for TeamAdmin.
+func (c *TeamAdminClient) Query() *TeamAdminQuery {
+	return &TeamAdminQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeTeamAdmin},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a TeamAdmin entity by its id.
+func (c *TeamAdminClient) Get(ctx context.Context, id int64) (*TeamAdmin, error) {
+	return c.Query().Where(teamadmin.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *TeamAdminClient) GetX(ctx context.Context, id int64) *TeamAdmin {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryTeam queries the team edge of a TeamAdmin.
+func (c *TeamAdminClient) QueryTeam(_m *TeamAdmin) *TeamQuery {
+	query := (&TeamClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(teamadmin.Table, teamadmin.FieldID, id),
+			sqlgraph.To(team.Table, team.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, teamadmin.TeamTable, teamadmin.TeamColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryUser queries the user edge of a TeamAdmin.
+func (c *TeamAdminClient) QueryUser(_m *TeamAdmin) *UserQuery {
+	query := (&UserClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(teamadmin.Table, teamadmin.FieldID, id),
+			sqlgraph.To(user.Table, user.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, teamadmin.UserTable, teamadmin.UserColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *TeamAdminClient) Hooks() []Hook {
+	hooks := c.hooks.TeamAdmin
+	return append(hooks[:len(hooks):len(hooks)], teamadmin.Hooks[:]...)
+}
+
+// Interceptors returns the client interceptors.
+func (c *TeamAdminClient) Interceptors() []Interceptor {
+	inters := c.inters.TeamAdmin
+	return append(inters[:len(inters):len(inters)], teamadmin.Interceptors[:]...)
+}
+
+func (c *TeamAdminClient) mutate(ctx context.Context, m *TeamAdminMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&TeamAdminCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&TeamAdminUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&TeamAdminUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&TeamAdminDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown TeamAdmin mutation op: %q", m.Op())
+	}
+}
+
+// TeamBalanceLogClient is a client for the TeamBalanceLog schema.
+type TeamBalanceLogClient struct {
+	config
+}
+
+// NewTeamBalanceLogClient returns a client for the TeamBalanceLog from the given config.
+func NewTeamBalanceLogClient(c config) *TeamBalanceLogClient {
+	return &TeamBalanceLogClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `teambalancelog.Hooks(f(g(h())))`.
+func (c *TeamBalanceLogClient) Use(hooks ...Hook) {
+	c.hooks.TeamBalanceLog = append(c.hooks.TeamBalanceLog, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `teambalancelog.Intercept(f(g(h())))`.
+func (c *TeamBalanceLogClient) Intercept(interceptors ...Interceptor) {
+	c.inters.TeamBalanceLog = append(c.inters.TeamBalanceLog, interceptors...)
+}
+
+// Create returns a builder for creating a TeamBalanceLog entity.
+func (c *TeamBalanceLogClient) Create() *TeamBalanceLogCreate {
+	mutation := newTeamBalanceLogMutation(c.config, OpCreate)
+	return &TeamBalanceLogCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of TeamBalanceLog entities.
+func (c *TeamBalanceLogClient) CreateBulk(builders ...*TeamBalanceLogCreate) *TeamBalanceLogCreateBulk {
+	return &TeamBalanceLogCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *TeamBalanceLogClient) MapCreateBulk(slice any, setFunc func(*TeamBalanceLogCreate, int)) *TeamBalanceLogCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &TeamBalanceLogCreateBulk{err: fmt.Errorf("calling to TeamBalanceLogClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*TeamBalanceLogCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &TeamBalanceLogCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for TeamBalanceLog.
+func (c *TeamBalanceLogClient) Update() *TeamBalanceLogUpdate {
+	mutation := newTeamBalanceLogMutation(c.config, OpUpdate)
+	return &TeamBalanceLogUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *TeamBalanceLogClient) UpdateOne(_m *TeamBalanceLog) *TeamBalanceLogUpdateOne {
+	mutation := newTeamBalanceLogMutation(c.config, OpUpdateOne, withTeamBalanceLog(_m))
+	return &TeamBalanceLogUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *TeamBalanceLogClient) UpdateOneID(id int64) *TeamBalanceLogUpdateOne {
+	mutation := newTeamBalanceLogMutation(c.config, OpUpdateOne, withTeamBalanceLogID(id))
+	return &TeamBalanceLogUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for TeamBalanceLog.
+func (c *TeamBalanceLogClient) Delete() *TeamBalanceLogDelete {
+	mutation := newTeamBalanceLogMutation(c.config, OpDelete)
+	return &TeamBalanceLogDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *TeamBalanceLogClient) DeleteOne(_m *TeamBalanceLog) *TeamBalanceLogDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *TeamBalanceLogClient) DeleteOneID(id int64) *TeamBalanceLogDeleteOne {
+	builder := c.Delete().Where(teambalancelog.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &TeamBalanceLogDeleteOne{builder}
+}
+
+// Query returns a query builder for TeamBalanceLog.
+func (c *TeamBalanceLogClient) Query() *TeamBalanceLogQuery {
+	return &TeamBalanceLogQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeTeamBalanceLog},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a TeamBalanceLog entity by its id.
+func (c *TeamBalanceLogClient) Get(ctx context.Context, id int64) (*TeamBalanceLog, error) {
+	return c.Query().Where(teambalancelog.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *TeamBalanceLogClient) GetX(ctx context.Context, id int64) *TeamBalanceLog {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryTeam queries the team edge of a TeamBalanceLog.
+func (c *TeamBalanceLogClient) QueryTeam(_m *TeamBalanceLog) *TeamQuery {
+	query := (&TeamClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(teambalancelog.Table, teambalancelog.FieldID, id),
+			sqlgraph.To(team.Table, team.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, teambalancelog.TeamTable, teambalancelog.TeamColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *TeamBalanceLogClient) Hooks() []Hook {
+	return c.hooks.TeamBalanceLog
+}
+
+// Interceptors returns the client interceptors.
+func (c *TeamBalanceLogClient) Interceptors() []Interceptor {
+	return c.inters.TeamBalanceLog
+}
+
+func (c *TeamBalanceLogClient) mutate(ctx context.Context, m *TeamBalanceLogMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&TeamBalanceLogCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&TeamBalanceLogUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&TeamBalanceLogUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&TeamBalanceLogDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown TeamBalanceLog mutation op: %q", m.Op())
+	}
+}
+
+// TeamMemberClient is a client for the TeamMember schema.
+type TeamMemberClient struct {
+	config
+}
+
+// NewTeamMemberClient returns a client for the TeamMember from the given config.
+func NewTeamMemberClient(c config) *TeamMemberClient {
+	return &TeamMemberClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `teammember.Hooks(f(g(h())))`.
+func (c *TeamMemberClient) Use(hooks ...Hook) {
+	c.hooks.TeamMember = append(c.hooks.TeamMember, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `teammember.Intercept(f(g(h())))`.
+func (c *TeamMemberClient) Intercept(interceptors ...Interceptor) {
+	c.inters.TeamMember = append(c.inters.TeamMember, interceptors...)
+}
+
+// Create returns a builder for creating a TeamMember entity.
+func (c *TeamMemberClient) Create() *TeamMemberCreate {
+	mutation := newTeamMemberMutation(c.config, OpCreate)
+	return &TeamMemberCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of TeamMember entities.
+func (c *TeamMemberClient) CreateBulk(builders ...*TeamMemberCreate) *TeamMemberCreateBulk {
+	return &TeamMemberCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *TeamMemberClient) MapCreateBulk(slice any, setFunc func(*TeamMemberCreate, int)) *TeamMemberCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &TeamMemberCreateBulk{err: fmt.Errorf("calling to TeamMemberClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*TeamMemberCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &TeamMemberCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for TeamMember.
+func (c *TeamMemberClient) Update() *TeamMemberUpdate {
+	mutation := newTeamMemberMutation(c.config, OpUpdate)
+	return &TeamMemberUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *TeamMemberClient) UpdateOne(_m *TeamMember) *TeamMemberUpdateOne {
+	mutation := newTeamMemberMutation(c.config, OpUpdateOne, withTeamMember(_m))
+	return &TeamMemberUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *TeamMemberClient) UpdateOneID(id int64) *TeamMemberUpdateOne {
+	mutation := newTeamMemberMutation(c.config, OpUpdateOne, withTeamMemberID(id))
+	return &TeamMemberUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for TeamMember.
+func (c *TeamMemberClient) Delete() *TeamMemberDelete {
+	mutation := newTeamMemberMutation(c.config, OpDelete)
+	return &TeamMemberDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *TeamMemberClient) DeleteOne(_m *TeamMember) *TeamMemberDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *TeamMemberClient) DeleteOneID(id int64) *TeamMemberDeleteOne {
+	builder := c.Delete().Where(teammember.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &TeamMemberDeleteOne{builder}
+}
+
+// Query returns a query builder for TeamMember.
+func (c *TeamMemberClient) Query() *TeamMemberQuery {
+	return &TeamMemberQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeTeamMember},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a TeamMember entity by its id.
+func (c *TeamMemberClient) Get(ctx context.Context, id int64) (*TeamMember, error) {
+	return c.Query().Where(teammember.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *TeamMemberClient) GetX(ctx context.Context, id int64) *TeamMember {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryTeam queries the team edge of a TeamMember.
+func (c *TeamMemberClient) QueryTeam(_m *TeamMember) *TeamQuery {
+	query := (&TeamClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(teammember.Table, teammember.FieldID, id),
+			sqlgraph.To(team.Table, team.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, teammember.TeamTable, teammember.TeamColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryUser queries the user edge of a TeamMember.
+func (c *TeamMemberClient) QueryUser(_m *TeamMember) *UserQuery {
+	query := (&UserClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(teammember.Table, teammember.FieldID, id),
+			sqlgraph.To(user.Table, user.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, teammember.UserTable, teammember.UserColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *TeamMemberClient) Hooks() []Hook {
+	hooks := c.hooks.TeamMember
+	return append(hooks[:len(hooks):len(hooks)], teammember.Hooks[:]...)
+}
+
+// Interceptors returns the client interceptors.
+func (c *TeamMemberClient) Interceptors() []Interceptor {
+	inters := c.inters.TeamMember
+	return append(inters[:len(inters):len(inters)], teammember.Interceptors[:]...)
+}
+
+func (c *TeamMemberClient) mutate(ctx context.Context, m *TeamMemberMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&TeamMemberCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&TeamMemberUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&TeamMemberUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&TeamMemberDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown TeamMember mutation op: %q", m.Op())
+	}
+}
+
 // UsageCleanupTaskClient is a client for the UsageCleanupTask schema.
 type UsageCleanupTaskClient struct {
 	config
@@ -5341,6 +6089,38 @@ func (c *UserClient) QueryPendingAuthSessions(_m *User) *PendingAuthSessionQuery
 	return query
 }
 
+// QueryTeamMemberships queries the team_memberships edge of a User.
+func (c *UserClient) QueryTeamMemberships(_m *User) *TeamMemberQuery {
+	query := (&TeamMemberClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, id),
+			sqlgraph.To(teammember.Table, teammember.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.TeamMembershipsTable, user.TeamMembershipsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryTeamAdminRoles queries the team_admin_roles edge of a User.
+func (c *UserClient) QueryTeamAdminRoles(_m *User) *TeamAdminQuery {
+	query := (&TeamAdminClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, id),
+			sqlgraph.To(teamadmin.Table, teamadmin.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.TeamAdminRolesTable, user.TeamAdminRolesColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryUserAllowedGroups queries the user_allowed_groups edge of a User.
 func (c *UserClient) QueryUserAllowedGroups(_m *User) *UserAllowedGroupQuery {
 	query := (&UserAllowedGroupClient{config: c.config}).Query()
@@ -5972,6 +6752,22 @@ func (c *UserSubscriptionClient) QueryAssignedByUser(_m *UserSubscription) *User
 	return query
 }
 
+// QueryTeam queries the team edge of a UserSubscription.
+func (c *UserSubscriptionClient) QueryTeam(_m *UserSubscription) *TeamQuery {
+	query := (&TeamClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(usersubscription.Table, usersubscription.FieldID, id),
+			sqlgraph.To(team.Table, team.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, usersubscription.TeamTable, usersubscription.TeamColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryUsageLogs queries the usage_logs edge of a UserSubscription.
 func (c *UserSubscriptionClient) QueryUsageLogs(_m *UserSubscription) *UsageLogQuery {
 	query := (&UsageLogClient{config: c.config}).Query()
@@ -6024,8 +6820,9 @@ type (
 		Group, IdempotencyRecord, IdentityAdoptionDecision, PaymentAuditLog,
 		PaymentOrder, PaymentProviderInstance, PendingAuthSession, PromoCode,
 		PromoCodeUsage, Proxy, RedeemCode, SecuritySecret, Setting, SubscriptionPlan,
-		TLSFingerprintProfile, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
-		UserAttributeDefinition, UserAttributeValue, UserSubscription []ent.Hook
+		TLSFingerprintProfile, Team, TeamAdmin, TeamBalanceLog, TeamMember,
+		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
+		UserAttributeValue, UserSubscription []ent.Hook
 	}
 	inters struct {
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
@@ -6034,8 +6831,9 @@ type (
 		Group, IdempotencyRecord, IdentityAdoptionDecision, PaymentAuditLog,
 		PaymentOrder, PaymentProviderInstance, PendingAuthSession, PromoCode,
 		PromoCodeUsage, Proxy, RedeemCode, SecuritySecret, Setting, SubscriptionPlan,
-		TLSFingerprintProfile, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
-		UserAttributeDefinition, UserAttributeValue, UserSubscription []ent.Interceptor
+		TLSFingerprintProfile, Team, TeamAdmin, TeamBalanceLog, TeamMember,
+		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
+		UserAttributeValue, UserSubscription []ent.Interceptor
 	}
 )
 

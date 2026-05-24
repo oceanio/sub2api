@@ -114,7 +114,7 @@ import { Doughnut } from 'vue-chartjs'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import UserBreakdownSubTable from './UserBreakdownSubTable.vue'
 import type { GroupStat, UserBreakdownItem } from '@/types'
-import { getUserBreakdown } from '@/api/admin/dashboard'
+import { fetchUserBreakdown } from '@/composables/useUserBreakdownFetcher'
 
 ChartJS.register(ArcElement, Tooltip, Legend)
 
@@ -130,10 +130,18 @@ const props = withDefaults(defineProps<{
   startDate?: string
   endDate?: string
   filters?: Record<string, any>
+  /**
+   * When set, the per-row drill-down hits the team-scoped user-breakdown
+   * endpoint instead of the admin one. teamId is required when scope === 'team'.
+   */
+  breakdownScope?: 'admin' | 'team'
+  breakdownSource?: 'admin' | 'team_admin'
+  teamId?: number
 }>(), {
   loading: false,
   metric: 'tokens',
   showMetricToggle: false,
+  breakdownScope: 'admin',
 })
 
 const emit = defineEmits<{
@@ -153,19 +161,13 @@ const toggleBreakdown = async (type: string, id: number | string) => {
   expandedKey.value = key
   breakdownLoading.value = true
   breakdownItems.value = []
-  try {
-    const res = await getUserBreakdown({
-      ...props.filters,
-      start_date: props.startDate,
-      end_date: props.endDate,
-      group_id: Number(id),
-    })
-    breakdownItems.value = res.users || []
-  } catch {
-    breakdownItems.value = []
-  } finally {
-    breakdownLoading.value = false
-  }
+  breakdownItems.value = await fetchUserBreakdown(props, {
+    ...props.filters,
+    start_date: props.startDate,
+    end_date: props.endDate,
+    group_id: Number(id),
+  })
+  breakdownLoading.value = false
 }
 
 const chartColors = [
