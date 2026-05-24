@@ -142,6 +142,31 @@ func (h *AdminTeamHandler) RechargeTeam(c *gin.Context) {
 	response.Success(c, team)
 }
 
+// RefundTeam POST /api/v1/admin/teams/:id/refund
+func (h *AdminTeamHandler) RefundTeam(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "invalid team id")
+		return
+	}
+	var req rechargeTeamRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	subject, _ := middleware2.GetAuthSubjectFromContext(c)
+	team, err := h.teamService.RefundTeam(c.Request.Context(), id, service.RechargeTeamRequest{
+		Amount:     req.Amount,
+		OperatorID: subject.UserID,
+		Note:       req.Note,
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, team)
+}
+
 // AddMember POST /api/v1/admin/teams/:id/members
 // Adds an existing user as a paying team member (sys admin only).
 // team_admin uses POST /team/:teamId/members to create a NEW user and add.

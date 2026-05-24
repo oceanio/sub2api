@@ -19,9 +19,7 @@ export const teamRoutes: RouteRecordRaw[] = [
   },
   {
     path: '/admin/teams/:id',
-    name: 'AdminTeamOverview',
-    component: () => import('@/views/admin/TeamManageOverview.vue'),
-    meta: { requiresAuth: true, requiresAdmin: true, titleKey: 'team.nav.overview' },
+    redirect: to => ({ path: `/admin/teams/${to.params.id}/members` }),
   },
   {
     path: '/admin/teams/:id/members',
@@ -62,9 +60,7 @@ export const teamRoutes: RouteRecordRaw[] = [
   },
   {
     path: '/team/:teamId',
-    name: 'TeamOverview',
-    component: () => import('@/views/team/TeamOverviewView.vue'),
-    meta: { requiresAuth: true, requiresAdmin: false, titleKey: 'team.nav.overview' },
+    redirect: to => ({ path: `/team/${to.params.teamId}/members` }),
   },
   {
     path: '/team/:teamId/members',

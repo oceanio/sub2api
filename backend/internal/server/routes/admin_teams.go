@@ -21,6 +21,7 @@ func registerAdminTeamRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		teams.PUT("/:id", h.Admin.Team.UpdateTeam)
 		teams.DELETE("/:id", h.Admin.Team.DeleteTeam)
 		teams.POST("/:id/recharge", h.Admin.Team.RechargeTeam)
+		teams.POST("/:id/refund", h.Admin.Team.RefundTeam)
 		teams.POST("/:id/members", h.Admin.Team.AddMember)
 		teams.GET("/:id", h.TeamScoped.GetTeam)
 
@@ -29,6 +30,13 @@ func registerAdminTeamRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		teams.GET("/:id/members", h.TeamScoped.ListMembers)
 		teams.DELETE("/:id/members/:memberID", h.TeamScoped.RemoveMember)
 		teams.PUT("/:id/members/:memberID/sub-quota", h.TeamScoped.UpdateMemberSubQuota)
+		teams.POST("/:id/members/new", h.TeamScoped.CreateMember)
+		teams.GET("/:id/members/:memberID", h.TeamScoped.GetMember)
+		teams.PUT("/:id/members/:memberID/tags", h.TeamScoped.UpdateMemberTags)
+		teams.PUT("/:id/members/:memberID/password", h.TeamScoped.ResetMemberPassword)
+		teams.PUT("/:id/members/:memberID/status", h.TeamScoped.SetMemberStatus)
+		teams.GET("/:id/members/:memberID/api-keys", h.TeamScoped.ListMemberAPIKeys)
+		teams.GET("/:id/members/:memberID/subscriptions", h.TeamScoped.ListMemberSubscriptions)
 
 		teams.GET("/:id/admins", h.TeamScoped.ListAdmins)
 		teams.POST("/:id/admins", h.TeamScoped.AddAdmin)

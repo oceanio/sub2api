@@ -81,13 +81,14 @@ func (r *teamRepository) CreateWithInitialState(ctx context.Context, t *service.
 	}
 
 	if initialBalance > 0 {
-		note := "initial balance"
+		// Note is intentionally left NULL — the team-creation tx itself implies
+		// "initial balance", so adding the literal string just clutters the log
+		// without adding information.
 		if _, err := tx.TeamBalanceLog.Create().
 			SetTeamID(created.ID).
 			SetType(service.TeamBalanceLogTypeRecharge).
 			SetAmount(initialBalance).
 			SetOperatorID(operatorID).
-			SetNote(note).
 			Save(ctx); err != nil {
 			return err
 		}
@@ -419,8 +420,10 @@ func (r *teamMemberRepository) ListByTeamIDFiltered(ctx context.Context, teamID 
 		Where(teammember.TeamIDEQ(teamID), teammember.DeletedAtIsNil())
 
 	if len(tags) > 0 {
+		// "??" escapes to a literal "?" so the JSONB operator "?|" survives ent's
+		// placeholder rewriting; the trailing "?" then binds the StringArray.
 		q = q.Where(func(sel *entsql.Selector) {
-			sel.Where(entsql.ExprP(sel.C(teammember.FieldTags)+" ?| $1", pq.StringArray(tags)))
+			sel.Where(entsql.ExprP(sel.C(teammember.FieldTags)+" ??| ?", pq.StringArray(tags)))
 		})
 	}
 

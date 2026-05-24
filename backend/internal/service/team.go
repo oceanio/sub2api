@@ -31,6 +31,7 @@ var (
 
 const (
 	TeamBalanceLogTypeRecharge             = "recharge"
+	TeamBalanceLogTypeRefund               = "refund"
 	TeamBalanceLogTypeSubscriptionPurchase = "subscription_purchase"
 )
 

@@ -1,24 +1,19 @@
 <template>
   <AppLayout>
     <div class="space-y-4 p-6">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div class="flex flex-wrap items-center gap-3">
-          <button
-            v-if="source === 'admin'"
-            class="btn btn-secondary btn-sm"
-            @click="$router.push('/admin/teams')"
-          >
-            ← {{ t('common.back') }}
-          </button>
-          <TeamSelector :model-value="teamId" :source="source" @update:modelValue="onTeamChange" />
-          <span v-if="team" class="text-sm text-gray-500">
-            {{ t('team.overview.balance') }}：
-            <span class="font-mono font-medium text-emerald-600">${{ Number(team.balance).toFixed(2) }}</span>
-          </span>
-        </div>
-        <div v-if="team && source === 'admin'" class="flex gap-2">
-          <button class="btn btn-secondary btn-sm" @click="showEditDialog = true">{{ t('common.edit') }}</button>
-        </div>
+      <div class="flex flex-wrap items-center gap-3">
+        <button
+          v-if="source === 'admin'"
+          class="btn btn-secondary btn-sm"
+          @click="$router.push('/admin/teams')"
+        >
+          ← {{ t('common.back') }}
+        </button>
+        <TeamSelector :model-value="teamId" :source="source" @update:modelValue="onTeamChange" />
+        <span v-if="team" class="text-sm text-gray-500">
+          {{ t('team.overview.balance') }}：
+          <span class="font-mono font-medium text-emerald-600">${{ Number(team.balance).toFixed(2) }}</span>
+        </span>
       </div>
 
       <div class="flex flex-wrap gap-2 border-b border-gray-200 dark:border-dark-700">
@@ -35,26 +30,6 @@
 
       <slot />
     </div>
-
-    <BaseDialog v-if="source === 'admin'" :show="showEditDialog" :title="t('common.edit')" width="narrow" @close="showEditDialog = false">
-      <div class="space-y-4">
-        <div>
-          <label class="input-label">{{ t('team.adminTeams.teamName') }}</label>
-          <input v-model="editForm.name" type="text" class="input" />
-        </div>
-        <div>
-          <label class="input-label">{{ t('team.adminTeams.maxMembers') }}</label>
-          <input v-model.number="editForm.maxMembers" type="number" min="0" class="input" />
-          <p class="mt-1 text-xs text-gray-500">{{ t('team.adminTeams.maxMembersHint') }}</p>
-        </div>
-      </div>
-      <template #footer>
-        <button class="btn btn-secondary" @click="showEditDialog = false">{{ t('common.cancel') }}</button>
-        <button class="btn btn-primary" :disabled="saving" @click="handleEdit">
-          {{ saving ? t('common.saving') : t('common.save') }}
-        </button>
-      </template>
-    </BaseDialog>
   </AppLayout>
 </template>
 
@@ -66,7 +41,6 @@ import { useAppStore } from '@/stores/app'
 import { useTeamStore } from '@/stores/team'
 import { teamAPI, type Team } from '@/api/team'
 import AppLayout from '@/components/layout/AppLayout.vue'
-import BaseDialog from '@/components/common/BaseDialog.vue'
 import TeamSelector from '@/components/team-management/TeamSelector.vue'
 
 type Source = 'admin' | 'team_admin'
@@ -94,14 +68,10 @@ function onTeamChange(newID: number) {
 }
 
 const team = ref<Team | null>(null)
-const showEditDialog = ref(false)
-const editForm = ref({ name: '', maxMembers: 0 })
-const saving = ref(false)
 
 const tabs = computed(() => {
   const base = `${basePath.value}/${props.teamId}`
   return [
-    { label: t('team.nav.overview'), path: base },
     { label: t('team.nav.members'), path: `${base}/members` },
     { label: t('team.nav.usage'), path: `${base}/usage` },
     { label: t('team.nav.subscriptions'), path: `${base}/subscriptions` },
@@ -125,7 +95,6 @@ async function loadTeam(force = false) {
     const cached = teamStore.getCachedAdminTeam(props.teamId)
     if (cached) {
       team.value = cached
-      editForm.value = { name: cached.name, maxMembers: cached.max_members ?? 0 }
       return
     }
   }
@@ -133,26 +102,11 @@ async function loadTeam(force = false) {
     const fresh = await teamAPI.getTeam(props.source, props.teamId)
     team.value = fresh
     if (props.source === 'admin') {
-      editForm.value = { name: fresh.name, maxMembers: fresh.max_members ?? 0 }
       teamStore.cacheAdminTeam(fresh)
     }
   } catch (e: any) {
     appStore.showError(e?.message ?? 'Failed')
   }
-}
-
-async function handleEdit() {
-  if (props.source !== 'admin') return
-  saving.value = true
-  try {
-    await teamAPI.adminUpdateTeam(props.teamId, { name: editForm.value.name, max_members: editForm.value.maxMembers })
-    appStore.showSuccess(t('common.saved'))
-    showEditDialog.value = false
-    teamStore.invalidateAdminTeam(props.teamId)
-    loadTeam(true)
-  } catch (e: any) {
-    appStore.showError(e?.message ?? 'Failed')
-  } finally { saving.value = false }
 }
 
 watch(() => props.teamId, (id) => {

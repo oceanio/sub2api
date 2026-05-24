@@ -47,14 +47,14 @@ func RegisterTeamRoutes(
 			members.DELETE("/:memberID", h.TeamScoped.RemoveMember)
 			members.PUT("/:memberID/sub-quota", h.TeamScoped.UpdateMemberSubQuota)
 
-			// team_admin-only operations (no /admin/teams equivalent).
-			members.POST("", h.Team.CreateMember)
-			members.GET("/:memberID", h.Team.GetMember)
-			members.PUT("/:memberID/tags", h.Team.UpdateMemberTags)
-			members.PUT("/:memberID/password", h.Team.ResetMemberPassword)
-			members.PUT("/:memberID/status", h.Team.SetMemberStatus)
-			members.GET("/:memberID/api-keys", h.Team.ListMemberAPIKeys)
-			members.GET("/:memberID/subscriptions", h.Team.ListMemberSubscriptions)
+			// Shared (also routed under /admin/teams/:id/members/* in admin_teams.go).
+			members.POST("", h.TeamScoped.CreateMember)
+			members.GET("/:memberID", h.TeamScoped.GetMember)
+			members.PUT("/:memberID/tags", h.TeamScoped.UpdateMemberTags)
+			members.PUT("/:memberID/password", h.TeamScoped.ResetMemberPassword)
+			members.PUT("/:memberID/status", h.TeamScoped.SetMemberStatus)
+			members.GET("/:memberID/api-keys", h.TeamScoped.ListMemberAPIKeys)
+			members.GET("/:memberID/subscriptions", h.TeamScoped.ListMemberSubscriptions)
 		}
 
 		// Admin role management (team_admin can add/remove other admins on this team).

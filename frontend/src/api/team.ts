@@ -145,12 +145,18 @@ export async function getMember(source: Source, teamId: number, memberID: number
   return data
 }
 
-/** Create a NEW user and add to team (team_admin source only — sys admin uses adminAddMember). */
+/** Create a NEW user and add to team. team_admin POSTs to /team/:teamId/members;
+ * sys admin POSTs to /admin/teams/:id/members/new (the path's /new suffix
+ * disambiguates from the legacy AddMember endpoint that adds an existing user). */
 export async function createMember(
+  source: Source,
   teamId: number,
   payload: { email: string; password: string; username?: string }
 ): Promise<TeamMember> {
-  const { data } = await apiClient.post<TeamMember>(`/team/${teamId}/members`, payload)
+  const url = source === 'admin'
+    ? `/admin/teams/${teamId}/members/new`
+    : `/team/${teamId}/members`
+  const { data } = await apiClient.post<TeamMember>(url, payload)
   return data
 }
 
@@ -174,27 +180,26 @@ export async function updateSubQuota(source: Source, teamId: number, memberID: n
   return data
 }
 
-/** Tags / password / status are team_admin-only ops. */
-export async function updateMemberTags(teamId: number, memberID: number, tags: string[]): Promise<TeamMember> {
-  const { data } = await apiClient.put<TeamMember>(`/team/${teamId}/members/${memberID}/tags`, { tags })
+export async function updateMemberTags(source: Source, teamId: number, memberID: number, tags: string[]): Promise<TeamMember> {
+  const { data } = await apiClient.put<TeamMember>(`${teamBasePath(source, teamId)}/members/${memberID}/tags`, { tags })
   return data
 }
 
-export async function resetMemberPassword(teamId: number, memberID: number, newPassword: string): Promise<void> {
-  await apiClient.put(`/team/${teamId}/members/${memberID}/password`, { new_password: newPassword })
+export async function resetMemberPassword(source: Source, teamId: number, memberID: number, newPassword: string): Promise<void> {
+  await apiClient.put(`${teamBasePath(source, teamId)}/members/${memberID}/password`, { new_password: newPassword })
 }
 
-export async function setMemberStatus(teamId: number, memberID: number, status: 'active' | 'disabled'): Promise<void> {
-  await apiClient.put(`/team/${teamId}/members/${memberID}/status`, { status })
+export async function setMemberStatus(source: Source, teamId: number, memberID: number, status: 'active' | 'disabled'): Promise<void> {
+  await apiClient.put(`${teamBasePath(source, teamId)}/members/${memberID}/status`, { status })
 }
 
-export async function listMemberAPIKeys(teamId: number, memberID: number): Promise<unknown[]> {
-  const { data } = await apiClient.get<unknown[]>(`/team/${teamId}/members/${memberID}/api-keys`)
+export async function listMemberAPIKeys(source: Source, teamId: number, memberID: number): Promise<unknown[]> {
+  const { data } = await apiClient.get<unknown[]>(`${teamBasePath(source, teamId)}/members/${memberID}/api-keys`)
   return data
 }
 
-export async function listMemberSubscriptions(teamId: number, memberID: number): Promise<TeamSubscription[]> {
-  const { data } = await apiClient.get<TeamSubscription[]>(`/team/${teamId}/members/${memberID}/subscriptions`)
+export async function listMemberSubscriptions(source: Source, teamId: number, memberID: number): Promise<TeamSubscription[]> {
+  const { data } = await apiClient.get<TeamSubscription[]>(`${teamBasePath(source, teamId)}/members/${memberID}/subscriptions`)
   return data
 }
 
@@ -467,6 +472,11 @@ export async function adminRechargeTeam(id: number, amount: number, note?: strin
   return data
 }
 
+export async function adminRefundTeam(id: number, amount: number, note?: string): Promise<Team> {
+  const { data } = await apiClient.post<Team>(`/admin/teams/${id}/refund`, { amount, note })
+  return data
+}
+
 // ── Aggregate export (some legacy callers use teamAPI.*) ─────────────────────
 
 export const teamAPI = {
@@ -504,4 +514,5 @@ export const teamAPI = {
   adminUpdateTeam,
   adminDeleteTeam,
   adminRechargeTeam,
+  adminRefundTeam,
 }

@@ -249,6 +249,43 @@ func (s *TeamService) RechargeTeam(ctx context.Context, teamID int64, req Rechar
 	return team, nil
 }
 
+// RefundTeam deducts balance from a team and writes a balance log entry of
+// type=refund. Rejects overdraft (team.balance < amount) — the personal user
+// refund flow uses the same client-side guard plus a server-side check.
+func (s *TeamService) RefundTeam(ctx context.Context, teamID int64, req RechargeTeamRequest) (*Team, error) {
+	if req.Amount <= 0 {
+		return nil, fmt.Errorf("refund amount must be positive")
+	}
+	current, err := s.teamRepo.GetByID(ctx, teamID)
+	if err != nil {
+		return nil, err
+	}
+	if current.Balance < req.Amount {
+		return nil, ErrTeamInsufficientBalance
+	}
+	newBalance, err := s.teamRepo.AddBalance(ctx, teamID, -req.Amount)
+	if err != nil {
+		return nil, fmt.Errorf("refund team: %w", err)
+	}
+	note := req.Note
+	log := &TeamBalanceLog{
+		TeamID:     teamID,
+		Type:       TeamBalanceLogTypeRefund,
+		Amount:     -req.Amount,
+		OperatorID: req.OperatorID,
+		Note:       &note,
+	}
+	if err := s.balanceLogRepo.Create(ctx, log); err != nil {
+		return nil, fmt.Errorf("create balance log: %w", err)
+	}
+	team, err := s.teamRepo.GetByID(ctx, teamID)
+	if err != nil {
+		return nil, err
+	}
+	team.Balance = newBalance
+	return team, nil
+}
+
 // AddMemberToTeam adds an existing user as a paying member (sys admin only).
 // Cap check applies: sys admin must raise max_members first if at limit.
 func (s *TeamService) AddMemberToTeam(ctx context.Context, req AddTeamMemberRequest) (*TeamMember, error) {
@@ -896,8 +933,11 @@ func (s *TeamService) ListMemberSubscriptions(ctx context.Context, teamID, membe
 // methods that take operatorID forward it here, so always pass the real
 // authenticated user id when calling on behalf of a team_admin.
 func (s *TeamService) requireTeamAdmin(ctx context.Context, teamID, userID int64) error {
-	if userID == 0 {
+	if IsSysAdminCaller(ctx) {
 		return nil
+	}
+	if userID == 0 {
+		return ErrTeamAdminRequired
 	}
 	ok, err := s.adminRepo.ExistsByTeamAndUser(ctx, teamID, userID)
 	if err != nil {

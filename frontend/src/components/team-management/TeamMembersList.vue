@@ -24,12 +24,12 @@
 
     <template #actions>
       <div class="flex justify-end gap-3">
-        <button v-if="source === 'team_admin'" class="btn btn-primary" @click="showCreateDialog = true">
+        <button class="btn btn-primary" @click="showCreateDialog = true">
           <Icon name="plus" size="md" class="mr-2" />
           {{ t('team.members.addMember') }}
         </button>
-        <button v-else class="btn btn-primary" @click="openAddExisting">
-          <Icon name="plus" size="md" class="mr-2" />
+        <button v-if="source === 'admin'" class="btn btn-secondary" @click="openAddExisting">
+          <Icon name="userPlus" size="md" class="mr-2" />
           {{ t('team.adminTeams.addMember') }}
         </button>
       </div>
@@ -94,9 +94,8 @@
               <Icon name="userPlus" size="sm" />
               <span class="text-xs">{{ row.is_admin ? t('team.members.demoteAdmin') : t('team.members.promoteAdmin') }}</span>
             </button>
-            <template v-if="source === 'team_admin'">
-              <button
-                @click="openTags(row)"
+            <button
+              @click="openTags(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-purple-600 dark:hover:bg-dark-700 dark:hover:text-purple-400"
                 :title="t('team.members.manageTags')"
               >
@@ -118,8 +117,7 @@
               >
                 <Icon :name="row.user?.status === 'disabled' ? 'check' : 'ban'" size="sm" />
                 <span class="text-xs">{{ row.user?.status === 'disabled' ? t('team.members.enable') : t('team.members.disable') }}</span>
-              </button>
-            </template>
+            </button>
             <button
               @click="confirmRemove(row)"
               class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
@@ -136,7 +134,7 @@
   </TablePageLayout>
 
   <!-- team_admin: create new user dialog -->
-  <BaseDialog v-if="source === 'team_admin'" :show="showCreateDialog" :title="t('team.members.addMember')" width="narrow" @close="showCreateDialog = false">
+  <BaseDialog :show="showCreateDialog" :title="t('team.members.addMember')" width="narrow" @close="showCreateDialog = false">
     <form class="space-y-4">
       <div>
         <label class="input-label">{{ t('team.members.email') }}</label>
@@ -191,7 +189,7 @@
   </BaseDialog>
 
   <!-- Tags dialog (team_admin only) -->
-  <BaseDialog v-if="source === 'team_admin'" :show="showTagsDialog" :title="t('team.members.manageTags')" width="narrow" @close="showTagsDialog = false">
+  <BaseDialog :show="showTagsDialog" :title="t('team.members.manageTags')" width="narrow" @close="showTagsDialog = false">
     <div class="space-y-3">
       <div class="flex flex-wrap gap-2">
         <span
@@ -217,7 +215,7 @@
   </BaseDialog>
 
   <!-- Reset password dialog (team_admin only) -->
-  <BaseDialog v-if="source === 'team_admin'" :show="showPwdDialog" :title="t('team.members.resetPassword')" width="narrow" @close="showPwdDialog = false">
+  <BaseDialog :show="showPwdDialog" :title="t('team.members.resetPassword')" width="narrow" @close="showPwdDialog = false">
     <div>
       <label class="input-label">{{ t('team.members.newPasswordLabel') }}</label>
       <input v-model="pwdForm.newPassword" type="password" class="input" required minlength="8" />
@@ -352,7 +350,7 @@ function onPageChange(p: number) { page.value = p; load() }
 async function handleCreate() {
   saving.value = true
   try {
-    await teamAPI.createMember(props.teamId, createForm.value)
+    await teamAPI.createMember(props.source, props.teamId, createForm.value)
     appStore.showSuccess(t('team.members.memberCreated'))
     showCreateDialog.value = false
     createForm.value = { email: '', username: '', password: '' }
@@ -380,7 +378,7 @@ async function handleTags() {
   if (!activeTarget.value) return
   saving.value = true
   try {
-    await teamAPI.updateMemberTags(props.teamId, activeTarget.value.id, tagsForm.value.tags)
+    await teamAPI.updateMemberTags(props.source, props.teamId, activeTarget.value.id, tagsForm.value.tags)
     appStore.showSuccess(t('team.members.tagsUpdated'))
     showTagsDialog.value = false
     load()
@@ -399,7 +397,7 @@ async function handleResetPwd() {
   if (!activeTarget.value) return
   saving.value = true
   try {
-    await teamAPI.resetMemberPassword(props.teamId, activeTarget.value.id, pwdForm.value.newPassword)
+    await teamAPI.resetMemberPassword(props.source, props.teamId, activeTarget.value.id, pwdForm.value.newPassword)
     appStore.showSuccess(t('team.members.passwordReset'))
     showPwdDialog.value = false
   } catch (e: any) {
@@ -427,7 +425,7 @@ async function handleRemove() {
 async function toggleStatus(m: TeamMember) {
   const next = m.user?.status === 'disabled' ? 'active' : 'disabled'
   try {
-    await teamAPI.setMemberStatus(props.teamId, m.id, next as 'active' | 'disabled')
+    await teamAPI.setMemberStatus(props.source, props.teamId, m.id, next as 'active' | 'disabled')
     appStore.showSuccess(t(next === 'active' ? 'team.members.enabled' : 'team.members.disabled'))
     load()
   } catch (e: any) {
