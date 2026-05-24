@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	entsql "entgo.io/ent/dialect/sql"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	entapikey "github.com/Wei-Shaw/sub2api/ent/apikey"
 	"github.com/Wei-Shaw/sub2api/ent/team"
@@ -415,20 +414,47 @@ func (r *teamMemberRepository) ListByTeamID(ctx context.Context, teamID int64, p
 	return out, paginationResultFromTotal(int64(total), params), nil
 }
 
+// queryMemberIDsByTags returns ids of active team members whose JSONB `tags`
+// array intersects the requested tag set. Raw SQL on purpose — see the
+// comment in ListByTeamIDFiltered for why ent's ExprP doesn't fit here.
+func (r *teamMemberRepository) queryMemberIDsByTags(ctx context.Context, teamID int64, tags []string) ([]int64, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id FROM team_members
+		WHERE team_id = $1 AND deleted_at IS NULL AND jsonb_exists_any(tags, $2)
+	`, teamID, pq.StringArray(tags))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func (r *teamMemberRepository) ListByTeamIDFiltered(ctx context.Context, teamID int64, tags []string, params pagination.PaginationParams) ([]service.TeamMember, *pagination.PaginationResult, error) {
 	q := r.client.TeamMember.Query().
 		Where(teammember.TeamIDEQ(teamID), teammember.DeletedAtIsNil())
 
 	if len(tags) > 0 {
-		// Use the function form `jsonb_exists_any(jsonb, text[])` instead of the
-		// `?|` operator: ent's placeholder rewriter interprets every "?" as a
-		// positional placeholder, so the `?` inside the `?|` operator gets
-		// consumed as one — confirmed in staging via both "jsonb ?| bigint" and
-		// "syntax error at or near )" errors. The function form contains no `?`
-		// characters at all, so the rewriter leaves it alone.
-		q = q.Where(func(sel *entsql.Selector) {
-			sel.Where(entsql.ExprP("jsonb_exists_any("+sel.C(teammember.FieldTags)+", ?)", pq.StringArray(tags)))
-		})
+		// ent's placeholder rewriter doesn't translate `?` inside a Where(func)
+		// sub-expression for Postgres (the literal `?` survives, and Postgres
+		// then interprets it as the jsonb-key-exists operator — "syntax error
+		// at or near )" in staging). Sidestep by pre-resolving matching IDs
+		// via raw SQL and feeding them back through ent.
+		filteredIDs, err := r.queryMemberIDsByTags(ctx, teamID, tags)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(filteredIDs) == 0 {
+			return []service.TeamMember{}, paginationResultFromTotal(0, params), nil
+		}
+		q = q.Where(teammember.IDIn(filteredIDs...))
 	}
 
 	total, err := q.Count(ctx)
