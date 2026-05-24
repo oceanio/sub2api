@@ -5131,165 +5131,9 @@
           </div>
         </div>
 
-        <!-- Request Debug Log feature card -->
-        <div class="card">
-          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
-              {{ t('admin.settings.features.debugLog.title') }}
-            </h2>
-            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              {{ t('admin.settings.features.debugLog.description') }}
-            </p>
-          </div>
-          <div class="space-y-5 p-6">
-            <div class="flex items-center justify-between">
-              <div>
-                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {{ t('admin.settings.features.debugLog.enabled') }}
-                </label>
-                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('admin.settings.features.debugLog.enabledHint') }}
-                </p>
-              </div>
-              <Toggle v-model="form.debug_request_log_enabled" />
-            </div>
-
-            <div v-if="form.debug_request_log_enabled" class="space-y-5">
-              <div>
-                <label class="input-label">
-                  {{ t('admin.settings.features.debugLog.ttlHours') }}
-                </label>
-                <input
-                  v-model.number="form.debug_request_log_ttl_hours"
-                  type="number"
-                  min="1"
-                  max="720"
-                  step="1"
-                  class="input"
-                />
-                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('admin.settings.features.debugLog.ttlHoursHint') }}
-                </p>
-              </div>
-
-              <div>
-                <label class="input-label">
-                  {{ t('admin.settings.features.debugLog.sampleRate') }}
-                </label>
-                <input
-                  v-model.number="form.debug_request_log_sample_rate"
-                  type="number"
-                  min="1"
-                  max="100"
-                  step="1"
-                  class="input"
-                />
-                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('admin.settings.features.debugLog.sampleRateHint') }}
-                </p>
-              </div>
-
-              <div>
-                <label class="input-label">
-                  {{ t('admin.settings.features.debugLog.bodyLimit') }}
-                </label>
-                <input
-                  v-model.number="form.debug_request_log_body_limit_bytes"
-                  type="number"
-                  min="0"
-                  max="1048576"
-                  step="1"
-                  class="input"
-                />
-                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('admin.settings.features.debugLog.bodyLimitHint') }}
-                </p>
-              </div>
-
-              <div class="flex items-center justify-between">
-                <div>
-                  <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    {{ t('admin.settings.features.debugLog.redactHeaders') }}
-                  </label>
-                  <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('admin.settings.features.debugLog.redactHeadersHint') }}
-                  </p>
-                </div>
-                <Toggle v-model="form.debug_request_log_redact_headers" @update:model-value="handleRedactHeadersChange" />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 折扣显示 & 汇率配置 card -->
-        <div class="card">
-          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
-              {{ localText('折扣显示与汇率', 'Discount Display & Exchange Rate') }}
-            </h2>
-            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              {{ localText('开启后，用户在选择分组时看到的是折扣百分比；关闭则显示原始倍率（如 3.4x）。', 'When enabled, users see a discount percentage when picking groups; when disabled, the raw multiplier (e.g. 3.4x) is shown.') }}
-            </p>
-          </div>
-          <div class="space-y-5 p-6">
-            <!-- Toggle: 显示折扣 vs 倍率 -->
-            <div class="flex items-center justify-between">
-              <div>
-                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {{ localText('启用折扣显示', 'Display Discount Instead of Multiplier') }}
-                </label>
-                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                  {{ localText('折扣 = 倍率 / 汇率 × 100%。例如汇率 7.2、倍率 3.6 → 50% 折扣。', 'Discount = Multiplier / Rate × 100%. E.g. rate 7.2, multiplier 3.6 → 50% discount.') }}
-                </p>
-              </div>
-              <Toggle v-model="form.display_discount_enabled" />
-            </div>
-
-            <!-- 折扣模式下：先选本币，再拉汇率 -->
-            <div v-if="form.display_discount_enabled" class="space-y-4 border-t border-gray-100 pt-5 dark:border-dark-700">
-              <div>
-                <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {{ localText('本币币种', 'Local Currency') }}
-                </label>
-                <select v-model="form.local_currency" class="input">
-                  <option value="CNY">{{ localText('人民币 (CNY)', 'Chinese Yuan (CNY)') }}</option>
-                  <option value="HKD">{{ localText('港币 (HKD)', 'Hong Kong Dollar (HKD)') }}</option>
-                </select>
-                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                  {{ localText('选择本币后，"从网络获取"按钮会拉取 1 USD 对应的该币种汇率。', 'After selecting a local currency, "Fetch from Network" pulls the latest 1 USD → currency rate.') }}
-                </p>
-              </div>
-
-              <div class="flex items-end gap-3">
-                <div class="flex-1">
-                  <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    {{ localText(`汇率 (1 USD = ? ${form.local_currency})`, `Exchange Rate (1 USD = ? ${form.local_currency})`) }}
-                  </label>
-                  <input
-                    v-model.number="form.usd_exchange_rate"
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    class="input"
-                    placeholder="7.20"
-                  />
-                </div>
-                <button
-                  type="button"
-                  class="btn btn-secondary shrink-0"
-                  :disabled="exchangeRateRefreshing"
-                  @click="handleRefreshExchangeRate"
-                >
-                  <span v-if="exchangeRateRefreshing" class="mr-1.5 inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-                  {{ localText('从网络获取', 'Fetch from Network') }}
-                </button>
-              </div>
-              <p v-if="(form.usd_exchange_rate ?? 0) > 0" class="text-xs text-gray-500 dark:text-gray-400">
-                {{ localText(`当前汇率：1 USD = ${form.usd_exchange_rate} ${form.local_currency}`, `Current rate: 1 USD = ${form.usd_exchange_rate} ${form.local_currency}`) }}
-              </p>
-            </div>
-          </div>
-        </div>
+        <!-- Fork cards (debug-log + discount/currency) extracted to child components -->
+        <SettingsDebugLogSection :form="form" />
+        <SettingsDiscountCurrencySection :form="form" />
 
         <!-- Affiliate (邀请返利) feature card -->
         <div class="card">
@@ -6679,16 +6523,6 @@
         @confirm="handleAffiliateConfirm"
         @cancel="cancelAffiliateConfirm"
       />
-      <ConfirmDialog
-        :show="debugLogRedactConfirmShow"
-        :title="t('admin.settings.features.debugLog.redactConfirmTitle')"
-        :message="t('admin.settings.features.debugLog.redactConfirmContent')"
-        :confirm-text="t('admin.settings.features.debugLog.redactConfirmOk')"
-        :cancel-text="t('admin.settings.features.debugLog.redactConfirmCancel')"
-        danger
-        @confirm="confirmDisableRedact"
-        @cancel="cancelDisableRedact"
-      />
     </div>
   </AppLayout>
 </template>
@@ -6737,6 +6571,8 @@ import ProxySelector from "@/components/common/ProxySelector.vue";
 import ImageUpload from "@/components/common/ImageUpload.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
+import SettingsDebugLogSection from "@/components/admin/settings/SettingsDebugLogSection.vue";
+import SettingsDiscountCurrencySection from "@/components/admin/settings/SettingsDiscountCurrencySection.vue";
 import { useClipboard } from "@/composables/useClipboard";
 import { affiliatesAPI, type AffiliateAdminEntry, type SimpleUser as AffiliateSimpleUser } from "@/api/admin/affiliates";
 import { extractApiErrorMessage, extractI18nErrorMessage } from "@/utils/apiError";
@@ -7296,8 +7132,6 @@ const wsTestLoading = ref(false);
 const wsTestResult = ref<WebSearchTestResult | null>(null);
 const wsTestDialogOpen = ref(false);
 
-const exchangeRateRefreshing = ref(false);
-
 function openTestDialog() {
   wsTestResult.value = null;
   wsTestDialogOpen.value = true;
@@ -7337,28 +7171,6 @@ function addWebSearchProvider() {
     expires_at: null,
   } as WebSearchProviderConfig);
   expandedProviders[idx] = true;
-}
-
-async function handleRefreshExchangeRate() {
-  exchangeRateRefreshing.value = true;
-  try {
-    const currency = form.local_currency === "HKD" ? "HKD" : "CNY";
-    const result = await adminAPI.settings.refreshExchangeRate(currency);
-    form.local_currency = result.local_currency;
-    form.usd_exchange_rate = result.usd_exchange_rate;
-    appStore.showSuccess(
-      localText(
-        `汇率已更新: 1 USD = ${result.usd_exchange_rate} ${result.local_currency}`,
-        `Exchange rate updated: 1 USD = ${result.usd_exchange_rate} ${result.local_currency}`,
-      ),
-    );
-  } catch {
-    appStore.showError(
-      localText("获取汇率失败，请稍后重试", "Failed to fetch exchange rate, please try again"),
-    );
-  } finally {
-    exchangeRateRefreshing.value = false;
-  }
 }
 
 function formatSubscribedAt(ts: number | null): string {
@@ -9430,20 +9242,6 @@ async function handleAffiliateConfirm() {
 function cancelAffiliateConfirm() {
   affiliateConfirmDialog.show = false;
   affiliateConfirmDialog.pending = null;
-}
-
-const debugLogRedactConfirmShow = ref(false);
-function handleRedactHeadersChange(next: boolean) {
-  if (!next) {
-    debugLogRedactConfirmShow.value = true;
-  }
-}
-function confirmDisableRedact() {
-  debugLogRedactConfirmShow.value = false;
-}
-function cancelDisableRedact() {
-  debugLogRedactConfirmShow.value = false;
-  form.debug_request_log_redact_headers = true;
 }
 
 function clampInteger(value: unknown, min: number, max: number, fallback: number): number {

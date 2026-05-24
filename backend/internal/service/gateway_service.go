@@ -587,14 +587,6 @@ type GatewayService struct {
 	countTokensProbeSF singleflight.Group
 }
 
-// countTokensSupportEntry 记录支持状态及过期时间。
-type countTokensSupportEntry struct {
-	supported bool
-	expiresAt int64 // unix nano
-}
-
-const countTokensSupportCacheTTL = 300 * time.Second
-
 // NewGatewayService creates a new GatewayService
 func NewGatewayService(
 	accountRepo AccountRepository,
@@ -8139,13 +8131,6 @@ func resolveUsageBillingRequestID(ctx context.Context, upstreamRequestID string)
 	return "generated:" + generateRequestID()
 }
 
-// ResolveCorrelationID 给出一次请求的统一关联 ID，供 usage_logs 和
-// request_debug_logs 共用，确保两表能用同一字符串 JOIN。
-// 调用方需要保证 ctx 来自 c.Request.Context()（带 middleware 注入的 RequestID）。
-func ResolveCorrelationID(ctx context.Context, upstreamRequestID string) string {
-	return resolveUsageBillingRequestID(ctx, upstreamRequestID)
-}
-
 func resolveUsageBillingPayloadFingerprint(ctx context.Context, requestPayloadHash string) string {
 	if payloadHash := strings.TrimSpace(requestPayloadHash); payloadHash != "" {
 		return payloadHash
@@ -8971,258 +8956,17 @@ func (s *GatewayService) isStickyAccountUpstreamRestricted(ctx context.Context, 
 	return s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel)
 }
 
-// countTokensSupportStatus 表示账号对 count_tokens 端点的支持缓存状态。
-type countTokensSupportStatus int
-
-const (
-	countTokensSupportUnknown countTokensSupportStatus = iota
-	countTokensSupportYes
-	countTokensSupportNo
-)
-
-// lookupCountTokensSupport 查缓存：返回 Unknown / Yes / No。命中过期视为 Unknown 并清理。
-func (s *GatewayService) lookupCountTokensSupport(accountID int64) countTokensSupportStatus {
-	if accountID <= 0 {
-		return countTokensSupportUnknown
-	}
-	v, ok := s.countTokensSupportCache.Load(accountID)
-	if !ok {
-		return countTokensSupportUnknown
-	}
-	entry, _ := v.(*countTokensSupportEntry)
-	if entry == nil || time.Now().UnixNano() >= entry.expiresAt {
-		s.countTokensSupportCache.Delete(accountID)
-		return countTokensSupportUnknown
-	}
-	if entry.supported {
-		return countTokensSupportYes
-	}
-	return countTokensSupportNo
-}
-
-// recordCountTokensSupport 写入支持状态缓存（TTL = countTokensSupportCacheTTL）。
-func (s *GatewayService) recordCountTokensSupport(accountID int64, supported bool) {
-	if accountID <= 0 {
-		return
-	}
-	s.countTokensSupportCache.Store(accountID, &countTokensSupportEntry{
-		supported: supported,
-		expiresAt: time.Now().Add(countTokensSupportCacheTTL).UnixNano(),
-	})
-}
-
-// countTokensProbeKey 把账号 ID 转成 singleflight key（int64 → string）。
-func countTokensProbeKey(accountID int64) string {
-	return strconv.FormatInt(accountID, 10)
-}
-
 // ForwardCountTokens 转发 count_tokens 请求到上游 API
-// 特点：不记录使用量、仅支持非流式响应
-//
-// 缓存 + singleflight 控制并发：
-//   - 命中 No  → 跳过上游，本地估算
-//   - 命中 Yes → 直接调上游
-//   - Unknown → singleflight 合并探测：第一个 caller 真打上游并写缓存；
-//     其他 caller 阻塞等待，待缓存就绪后各自再分流（各自的 body 各自算）。
-//     prober 网络错误未写缓存时，follower 退化为本地估算，避免穿透。
+// 特点：不记录使用量、仅支持非流式响应。
+// Fork: real orchestration (cache + singleflight + local fallback on errors)
+// lives in gateway_count_tokens_fallback.go so this file's diff vs upstream
+// stays focused on the validation + delegate.
 func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context, account *Account, parsed *ParsedRequest) error {
 	if parsed == nil {
 		s.countTokensError(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
 		return fmt.Errorf("parse request: empty request")
 	}
-
-	if account == nil {
-		return s.forwardCountTokensDispatch(ctx, c, account, parsed)
-	}
-
-	switch s.lookupCountTokensSupport(account.ID) {
-	case countTokensSupportNo:
-		return s.localCountTokensEstimate(c, account, parsed, "upstream marked unsupported (cached)")
-	case countTokensSupportYes:
-		return s.forwardCountTokensDispatch(ctx, c, account, parsed)
-	}
-
-	// Unknown：用 singleflight 让第一个 caller 去探测，其他 caller 阻塞等待。
-	// prober 在闭包内完成 dispatch（包括写响应），返回后 follower 才解阻塞。
-	isProber := false
-	_, sfErr, _ := s.countTokensProbeSF.Do(countTokensProbeKey(account.ID), func() (any, error) {
-		isProber = true
-		return nil, s.forwardCountTokensDispatch(ctx, c, account, parsed)
-	})
-	if isProber {
-		return sfErr
-	}
-
-	// Follower：prober 已结束，依据其写入的缓存决定路径。
-	switch s.lookupCountTokensSupport(account.ID) {
-	case countTokensSupportYes:
-		return s.forwardCountTokensDispatch(ctx, c, account, parsed)
-	case countTokensSupportNo:
-		return s.localCountTokensEstimate(c, account, parsed, "upstream marked unsupported (cached)")
-	default:
-		// 仍是 Unknown：prober 走的是 network error 路径未写缓存，避免重试穿透。
-		return s.localCountTokensEstimate(c, account, parsed, "probe inconclusive, falling back to local")
-	}
-}
-
-// localCountTokensEstimate 返回本地 tiktoken 估算结果（HTTP 200）。
-func (s *GatewayService) localCountTokensEstimate(c *gin.Context, account *Account, parsed *ParsedRequest, reason string) error {
-	inputTokens := estimateInputTokens(parsed)
-	if account != nil {
-		logger.LegacyPrintf("service.gateway",
-			"[count_tokens] %s, using local estimation: %d tokens (account=%d name=%s)",
-			reason, inputTokens, account.ID, account.Name)
-	}
-	c.JSON(http.StatusOK, gin.H{"input_tokens": inputTokens})
-	return nil
-}
-
-// forwardCountTokensDispatch 真正调用上游的分发函数。按账号类型选择 passthrough / 本地 / 标准 count_tokens 上游。
-// 在终态（2xx 成功 或 4xx/5xx 上游拒绝）会更新支持缓存。
-func (s *GatewayService) forwardCountTokensDispatch(ctx context.Context, c *gin.Context, account *Account, parsed *ParsedRequest) error {
-	if account != nil && account.IsAnthropicAPIKeyPassthroughEnabled() {
-		passthroughBody := parsed.Body
-		if reqModel := parsed.Model; reqModel != "" {
-			if mappedModel := account.GetMappedModel(reqModel); mappedModel != reqModel {
-				passthroughBody = s.replaceModelInBody(passthroughBody, mappedModel)
-				logger.LegacyPrintf("service.gateway", "CountTokens passthrough model mapping: %s -> %s (account: %s)", reqModel, mappedModel, account.Name)
-			}
-		}
-		return s.forwardCountTokensAnthropicAPIKeyPassthrough(ctx, c, account, passthroughBody, parsed)
-	}
-
-	// Bedrock 不支持 count_tokens 端点：直接回退到本地 token 估算。
-	if account != nil && account.IsBedrock() {
-		s.recordCountTokensSupport(account.ID, false)
-		return s.localCountTokensEstimate(c, account, parsed, "Bedrock does not support count_tokens")
-	}
-
-	body := parsed.Body
-	reqModel := parsed.Model
-
-	// Pre-filter: strip empty text blocks to prevent upstream 400.
-	body = StripEmptyTextBlocks(body)
-
-	isClaudeCodeCT := IsClaudeCodeClient(ctx) || isClaudeCodeClient(c.GetHeader("User-Agent"), parsed.MetadataUserID)
-	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCodeCT
-
-	if shouldMimicClaudeCode {
-		normalizeOpts := claudeOAuthNormalizeOptions{stripSystemCacheControl: true}
-		body, reqModel = normalizeClaudeOAuthRequestBody(body, reqModel, normalizeOpts)
-
-		body = s.rewriteMessageCacheControlIfEnabled(ctx, body)
-		if rw := buildToolNameRewriteFromBody(body); rw != nil {
-			body = applyToolNameRewriteToBody(body, rw)
-		} else {
-			body = applyToolsLastCacheBreakpoint(body)
-		}
-	}
-
-	// Antigravity 账户不支持 count_tokens：直接回退到本地 token 估算。
-	if account.Platform == PlatformAntigravity {
-		s.recordCountTokensSupport(account.ID, false)
-		return s.localCountTokensEstimate(c, account, parsed, "Antigravity does not support count_tokens")
-	}
-
-	// 应用模型映射：
-	// - APIKey 账号：使用账号级别的显式映射（如果配置），否则透传原始模型名
-	// - OAuth/SetupToken 账号：使用 Anthropic 标准映射（短ID → 长ID）
-	if reqModel != "" {
-		mappedModel := reqModel
-		mappingSource := ""
-		if account.Type == AccountTypeAPIKey {
-			mappedModel = account.GetMappedModel(reqModel)
-			if mappedModel != reqModel {
-				mappingSource = "account"
-			}
-		}
-		if mappingSource == "" && account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {
-			normalized := claude.NormalizeModelID(reqModel)
-			if normalized != reqModel {
-				mappedModel = normalized
-				mappingSource = "prefix"
-			}
-		}
-		if mappedModel != reqModel {
-			body = s.replaceModelInBody(body, mappedModel)
-			reqModel = mappedModel
-			logger.LegacyPrintf("service.gateway", "CountTokens model mapping applied: %s -> %s (account: %s, source=%s)", parsed.Model, mappedModel, account.Name, mappingSource)
-		}
-	}
-
-	// 获取凭证
-	token, tokenType, err := s.GetAccessToken(ctx, account)
-	if err != nil {
-		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to get access token")
-		return err
-	}
-
-	// 构建上游请求
-	upstreamReq, err := s.buildCountTokensRequest(ctx, c, account, body, token, tokenType, reqModel, shouldMimicClaudeCode)
-	if err != nil {
-		s.countTokensError(c, http.StatusInternalServerError, "api_error", "Failed to build request")
-		return err
-	}
-
-	// 获取代理URL（自定义 base URL 模式下，proxy 通过 buildCustomRelayURL 作为查询参数传递）
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		if !account.IsCustomBaseURLEnabled() || account.GetCustomBaseURL() == "" {
-			proxyURL = account.Proxy.URL()
-		}
-	}
-
-	// 发送请求
-	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
-	if err != nil {
-		setOpsUpstreamError(c, 0, sanitizeUpstreamErrorMessage(err.Error()), "")
-		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Request failed")
-		return fmt.Errorf("upstream request failed: %w", err)
-	}
-
-	// 读取响应体
-	countTokensTooLarge := func(c *gin.Context) {
-		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Upstream response too large")
-	}
-	respBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, countTokensTooLarge)
-	_ = resp.Body.Close()
-	if err != nil {
-		if !errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
-			s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to read response")
-		}
-		return err
-	}
-
-	// 处理错误响应
-	// count_tokens 是客户端预估 token 的轻量探测，任何上游错误都不应影响账号状态：
-	// - 不调用 HandleUpstreamError，避免触发限流/封禁/自定义错误码逻辑
-	// - 一律回退到本地 tiktoken 估算，返回 200，避免阻塞客户端工作流
-	// - 标记账号 No，TTL 内后续请求直接走本地估算，避免持续打无用上游
-	if resp.StatusCode >= 400 {
-		s.recordCountTokensSupport(account.ID, false)
-		upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
-		if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
-			logger.LegacyPrintf("service.gateway",
-				"count_tokens upstream error %d (account=%d platform=%s type=%s) [isolated, account state unchanged]: %s",
-				resp.StatusCode,
-				account.ID,
-				account.Platform,
-				account.Type,
-				truncateForLog(respBody, s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes),
-			)
-		}
-		inputTokens := estimateInputTokens(parsed)
-		logger.LegacyPrintf("service.gateway",
-			"[count_tokens] upstream error %d, falling back to local estimation: %d tokens (account=%d name=%s msg=%s)",
-			resp.StatusCode, inputTokens, account.ID, account.Name, truncateString(upstreamMsg, 256))
-		c.JSON(http.StatusOK, gin.H{"input_tokens": inputTokens})
-		return nil
-	}
-
-	// 透传成功响应；标记账号 Yes，TTL 内后续请求直接走上游。
-	s.recordCountTokensSupport(account.ID, true)
-	c.Data(resp.StatusCode, "application/json", respBody)
-	return nil
+	return s.forwardCountTokensWithFallback(ctx, c, account, parsed)
 }
 
 func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx context.Context, c *gin.Context, account *Account, body []byte, parsed *ParsedRequest) error {

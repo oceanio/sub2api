@@ -80,70 +80,6 @@ func NewFrontendServer(settingsProvider PublicSettingsProvider) (*FrontendServer
 	}, nil
 }
 
-// refreshBaseHTML checks if data/public/index.html exists and is newer than
-// the currently loaded copy. When it changes (or appears/disappears) the
-// in-memory base HTML and the rendered HTML cache are refreshed so that the
-// next request reflects the new content.
-//
-// Returns the active base HTML to use for rendering this request.
-func (s *FrontendServer) refreshBaseHTML() []byte {
-	s.baseMu.Lock()
-	defer s.baseMu.Unlock()
-
-	overridePath := s.overrideIndexPath()
-	if overridePath == "" {
-		return s.baseHTML
-	}
-
-	info, err := os.Stat(overridePath)
-	if err != nil || info.IsDir() {
-		// Override removed → fall back to embedded version.
-		if !s.overrideMTime.IsZero() {
-			s.baseHTML = s.embeddedBase
-			s.cache.SetBaseHTML(s.embeddedBase)
-			s.cache.Invalidate()
-			s.overrideMTime = time.Time{}
-		}
-		return s.baseHTML
-	}
-
-	mtime := info.ModTime()
-	if mtime.Equal(s.overrideMTime) {
-		return s.baseHTML
-	}
-
-	content, readErr := os.ReadFile(overridePath)
-	if readErr != nil {
-		return s.baseHTML
-	}
-
-	s.baseHTML = content
-	s.overrideMTime = mtime
-	s.cache.SetBaseHTML(content)
-	s.cache.Invalidate()
-	return s.baseHTML
-}
-
-// overrideIndexPath returns the on-disk path of the override index.html,
-// or "" if override is disabled.
-func (s *FrontendServer) overrideIndexPath() string {
-	if s.overrideDir == "" {
-		return ""
-	}
-	return filepath.Join(s.overrideDir, "index.html")
-}
-
-// overrideFileExists reports whether the named relative path exists in the
-// override directory as a regular file.
-func (s *FrontendServer) overrideFileExists(cleanPath string) bool {
-	if s.overrideDir == "" {
-		return false
-	}
-	filePath := filepath.Join(s.overrideDir, filepath.Clean("/"+cleanPath))
-	info, err := os.Stat(filePath)
-	return err == nil && !info.IsDir()
-}
-
 // InvalidateCache invalidates the HTML cache (call when settings change)
 func (s *FrontendServer) InvalidateCache() {
 	if s != nil && s.cache != nil {
@@ -295,23 +231,6 @@ func (s *FrontendServer) injectSettings(settingsJSON []byte) []byte {
 	base := s.baseHTML
 	s.baseMu.Unlock()
 	return s.injectSettingsInto(base, settingsJSON)
-}
-
-// injectSettingsInto injects the settings script and site title into the
-// provided base HTML. Stateless: callers pass in the base they want rendered.
-func (s *FrontendServer) injectSettingsInto(baseHTML, settingsJSON []byte) []byte {
-	// Create the script tag to inject with nonce placeholder
-	// The placeholder will be replaced with actual nonce at request time
-	script := []byte(`<script nonce="` + NonceHTMLPlaceholder + `">window.__APP_CONFIG__=` + string(settingsJSON) + `;</script>`)
-
-	// Inject before </head>
-	headClose := []byte("</head>")
-	result := bytes.Replace(baseHTML, headClose, append(script, headClose...), 1)
-
-	// Replace <title> with custom site name so the browser tab shows it immediately
-	result = injectSiteTitle(result, settingsJSON)
-
-	return result
 }
 
 // injectSiteTitle replaces the static <title> in HTML with the configured site name.
