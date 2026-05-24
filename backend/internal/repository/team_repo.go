@@ -420,10 +420,14 @@ func (r *teamMemberRepository) ListByTeamIDFiltered(ctx context.Context, teamID 
 		Where(teammember.TeamIDEQ(teamID), teammember.DeletedAtIsNil())
 
 	if len(tags) > 0 {
-		// "??" escapes to a literal "?" so the JSONB operator "?|" survives ent's
-		// placeholder rewriting; the trailing "?" then binds the StringArray.
+		// Use the function form `jsonb_exists_any(jsonb, text[])` instead of the
+		// `?|` operator: ent's placeholder rewriter interprets every "?" as a
+		// positional placeholder, so the `?` inside the `?|` operator gets
+		// consumed as one — confirmed in staging via both "jsonb ?| bigint" and
+		// "syntax error at or near )" errors. The function form contains no `?`
+		// characters at all, so the rewriter leaves it alone.
 		q = q.Where(func(sel *entsql.Selector) {
-			sel.Where(entsql.ExprP(sel.C(teammember.FieldTags)+" ??| ?", pq.StringArray(tags)))
+			sel.Where(entsql.ExprP("jsonb_exists_any("+sel.C(teammember.FieldTags)+", ?)", pq.StringArray(tags)))
 		})
 	}
 

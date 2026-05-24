@@ -316,7 +316,7 @@ const createForm = ref({
   adminUserId: 0,
   adminEmail: '',
   initialBalance: 0,
-  maxMembers: 0,
+  maxMembers: 200,
   alsoAddAsMember: false,
 })
 const adminCandidates = ref<Array<{ id: number; email: string }>>([])
@@ -383,7 +383,7 @@ async function handleCreate() {
     })
     appStore.showSuccess(t('team.adminTeams.teamCreated'))
     showCreateDialog.value = false
-    createForm.value = { name: '', adminSearch: '', adminUserId: 0, adminEmail: '', initialBalance: 0, maxMembers: 0, alsoAddAsMember: false }
+    createForm.value = { name: '', adminSearch: '', adminUserId: 0, adminEmail: '', initialBalance: 0, maxMembers: 200, alsoAddAsMember: false }
     adminCandidates.value = []
     load()
   } catch (e: any) {

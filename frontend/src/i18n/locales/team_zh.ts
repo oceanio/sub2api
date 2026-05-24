@@ -5,7 +5,6 @@ export const teamMessages = {
     usage: '使用记录',
     subscriptions: '订阅管理',
     balance: '余额流水',
-    tags: '标签管理',
   },
   overview: {
     balance: '团队余额',

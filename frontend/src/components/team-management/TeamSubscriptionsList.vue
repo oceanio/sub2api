@@ -18,18 +18,78 @@
           <span>{{ row.group?.name ?? row.group_id }}</span>
           <span v-if="row.group?.platform" class="ml-1 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500 dark:bg-dark-700">{{ row.group.platform }}</span>
         </template>
-        <template #cell-status="{ row }">
-          <span :class="row.status === 'active' && !isExpired(row) ? 'text-green-600' : 'text-gray-400'">
-            {{ row.status === 'active' && !isExpired(row) ? t('common.active') : t('common.disabled') }}
+        <template #cell-status="{ value }">
+          <span
+            :class="[
+              'badge',
+              value === 'active' ? 'badge-success' : value === 'expired' ? 'badge-warning' : 'badge-danger',
+            ]"
+          >
+            {{ t(`admin.subscriptions.status.${value}`) }}
           </span>
         </template>
-        <template #cell-expires_at="{ value }">{{ formatDateTime(value) }}</template>
+        <template #cell-expires_at="{ value }">
+          <div v-if="value">
+            <span class="text-sm" :class="isExpiringSoon(value) ? 'text-orange-600 dark:text-orange-400' : 'text-gray-700 dark:text-gray-300'">
+              {{ formatDateOnly(value) }}
+            </span>
+            <div v-if="getDaysRemaining(value) !== null" class="text-xs text-gray-500">
+              {{ getDaysRemaining(value) }} {{ t('admin.subscriptions.daysRemaining') }}
+            </div>
+          </div>
+          <span v-else class="text-sm text-gray-500">{{ t('admin.subscriptions.noExpiration') }}</span>
+        </template>
         <template #cell-usage="{ row }">
-          <span class="font-mono text-xs">
-            <span>{{ t('team.subscriptions.usageDaily') }} ${{ Number(row.daily_usage_usd ?? 0).toFixed(2) }}</span>
-            <span class="ml-2">{{ t('team.subscriptions.usageWeekly') }} ${{ Number(row.weekly_usage_usd ?? 0).toFixed(2) }}</span>
-            <span class="ml-2">{{ t('team.subscriptions.usageMonthly') }} ${{ Number(row.monthly_usage_usd ?? 0).toFixed(2) }}</span>
-          </span>
+          <div class="min-w-[260px] space-y-2">
+            <div v-if="row.group?.daily_limit_usd" class="flex items-center gap-2 text-xs">
+              <span class="w-8 shrink-0 text-gray-500">{{ t('admin.subscriptions.daily') }}</span>
+              <div class="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
+                <div class="h-1.5 rounded-full transition-all" :class="getProgressClass(row.daily_usage_usd, row.group?.daily_limit_usd)" :style="{ width: getProgressWidth(row.daily_usage_usd, row.group?.daily_limit_usd) }"></div>
+              </div>
+              <span class="font-mono whitespace-nowrap">${{ Number(row.daily_usage_usd ?? 0).toFixed(2) }}<span class="text-gray-400">/</span>${{ Number(row.group?.daily_limit_usd).toFixed(2) }}</span>
+            </div>
+            <div v-if="row.group?.weekly_limit_usd" class="flex items-center gap-2 text-xs">
+              <span class="w-8 shrink-0 text-gray-500">{{ t('admin.subscriptions.weekly') }}</span>
+              <div class="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
+                <div class="h-1.5 rounded-full transition-all" :class="getProgressClass(row.weekly_usage_usd, row.group?.weekly_limit_usd)" :style="{ width: getProgressWidth(row.weekly_usage_usd, row.group?.weekly_limit_usd) }"></div>
+              </div>
+              <span class="font-mono whitespace-nowrap">${{ Number(row.weekly_usage_usd ?? 0).toFixed(2) }}<span class="text-gray-400">/</span>${{ Number(row.group?.weekly_limit_usd).toFixed(2) }}</span>
+            </div>
+            <div v-if="row.group?.monthly_limit_usd" class="flex items-center gap-2 text-xs">
+              <span class="w-8 shrink-0 text-gray-500">{{ t('admin.subscriptions.monthly') }}</span>
+              <div class="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
+                <div class="h-1.5 rounded-full transition-all" :class="getProgressClass(row.monthly_usage_usd, row.group?.monthly_limit_usd)" :style="{ width: getProgressWidth(row.monthly_usage_usd, row.group?.monthly_limit_usd) }"></div>
+              </div>
+              <span class="font-mono whitespace-nowrap">${{ Number(row.monthly_usage_usd ?? 0).toFixed(2) }}<span class="text-gray-400">/</span>${{ Number(row.group?.monthly_limit_usd).toFixed(2) }}</span>
+            </div>
+            <div
+              v-if="!row.group?.daily_limit_usd && !row.group?.weekly_limit_usd && !row.group?.monthly_limit_usd"
+              class="flex items-center gap-2 rounded-md bg-emerald-50 px-2 py-1 text-xs text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300"
+            >
+              <span>∞</span>
+              <span>{{ t('admin.subscriptions.unlimited') }}</span>
+            </div>
+          </div>
+        </template>
+        <template #cell-actions="{ row }">
+          <div class="flex items-center gap-1">
+            <button
+              v-if="row.status === 'active'"
+              @click="askResetQuota(row)"
+              class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-orange-50 hover:text-orange-600 dark:hover:bg-orange-900/20 dark:hover:text-orange-400"
+            >
+              <Icon name="refresh" size="sm" />
+              <span class="text-xs">{{ t('admin.subscriptions.resetQuota') }}</span>
+            </button>
+            <button
+              v-if="row.status === 'active'"
+              @click="askRevoke(row)"
+              class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+            >
+              <Icon name="ban" size="sm" />
+              <span class="text-xs">{{ t('admin.subscriptions.revoke') }}</span>
+            </button>
+          </div>
         </template>
       </DataTable>
       <Pagination :total="total" :page="page" :page-size="pageSize" @change="onPageChange" />
@@ -101,10 +161,26 @@
       </button>
     </template>
   </BaseDialog>
+
+  <ConfirmDialog
+    :show="resetTarget !== null"
+    :title="t('admin.subscriptions.resetQuotaConfirmTitle')"
+    :message="t('admin.subscriptions.resetQuotaConfirmContent', { user: resetTarget?.user?.email ?? resetTarget?.user_id })"
+    @confirm="handleResetQuota"
+    @cancel="resetTarget = null"
+  />
+  <ConfirmDialog
+    :show="revokeTarget !== null"
+    :title="t('admin.subscriptions.revokeConfirmTitle')"
+    :message="t('admin.subscriptions.revokeConfirmContent', { user: revokeTarget?.user?.email ?? revokeTarget?.user_id })"
+    danger
+    @confirm="handleRevoke"
+    @cancel="revokeTarget = null"
+  />
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, inject, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { teamAPI, type TeamSubscription, type TeamMember, type Team, type SubscriptionPlan } from '@/api/team'
@@ -114,7 +190,7 @@ import Pagination from '@/components/common/Pagination.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { formatDateTime } from '@/utils/format'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import type { Column } from '@/components/common/types'
 
 interface Props {
@@ -137,7 +213,12 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 
+// Layout exposes a refreshTeam fn so balance/header reflect post-purchase state.
+const refreshTeam = inject<() => void>('refreshTeam', () => {})
+
 const showPurchaseDialog = ref(false)
+const resetTarget = ref<TeamSubscription | null>(null)
+const revokeTarget = ref<TeamSubscription | null>(null)
 const purchaseForm = ref<{ allMembers: boolean; userIds: number[]; planId: number | null }>({
   allMembers: false,
   userIds: [],
@@ -150,6 +231,7 @@ const columns = computed<Column[]>(() => [
   { key: 'status', label: t('common.status'), sortable: false },
   { key: 'expires_at', label: t('team.subscriptions.expiresAt'), sortable: false },
   { key: 'usage', label: t('team.subscriptions.usage'), sortable: false },
+  { key: 'actions', label: t('common.actions'), sortable: false },
 ])
 
 const planOptions = computed(() =>
@@ -173,8 +255,34 @@ function clearMembers() {
   purchaseForm.value.userIds = []
 }
 
-function isExpired(row: TeamSubscription) {
-  return new Date(row.expires_at).getTime() < Date.now()
+function getDaysRemaining(expiresAt: string): number | null {
+  const diff = new Date(expiresAt).getTime() - Date.now()
+  if (diff < 0) return null
+  return Math.ceil(diff / (1000 * 60 * 60 * 24))
+}
+
+function isExpiringSoon(expiresAt: string): boolean {
+  const d = getDaysRemaining(expiresAt)
+  return d !== null && d <= 7
+}
+
+function getProgressWidth(used: number | null | undefined, limit: number | null | undefined): string {
+  const l = Number(limit ?? 0)
+  if (l <= 0) return '0%'
+  return `${Math.min((Number(used ?? 0) / l) * 100, 100)}%`
+}
+
+function getProgressClass(used: number | null | undefined, limit: number | null | undefined): string {
+  const l = Number(limit ?? 0)
+  if (l <= 0) return 'bg-gray-400'
+  const pct = (Number(used ?? 0) / l) * 100
+  if (pct >= 90) return 'bg-red-500'
+  if (pct >= 70) return 'bg-orange-500'
+  return 'bg-green-500'
+}
+
+function formatDateOnly(v: string): string {
+  return new Date(v).toLocaleDateString()
 }
 
 async function load() {
@@ -208,6 +316,35 @@ async function openPurchase() {
   showPurchaseDialog.value = true
 }
 
+function askResetQuota(row: TeamSubscription) { resetTarget.value = row }
+function askRevoke(row: TeamSubscription) { revokeTarget.value = row }
+
+async function handleResetQuota() {
+  if (!resetTarget.value) return
+  const target = resetTarget.value
+  try {
+    await teamAPI.resetSubscriptionQuota(props.source, props.teamId, target.id, { daily: true, weekly: true, monthly: true })
+    appStore.showSuccess(t('admin.subscriptions.quotaResetSuccess'))
+    resetTarget.value = null
+    load()
+  } catch (e: any) {
+    appStore.showError(e?.message ?? 'Failed')
+  }
+}
+
+async function handleRevoke() {
+  if (!revokeTarget.value) return
+  const target = revokeTarget.value
+  try {
+    await teamAPI.revokeSubscription(props.source, props.teamId, target.id)
+    appStore.showSuccess(t('admin.subscriptions.subscriptionRevoked'))
+    revokeTarget.value = null
+    load()
+  } catch (e: any) {
+    appStore.showError(e?.message ?? 'Failed')
+  }
+}
+
 async function handlePurchase() {
   if (!canPurchase.value) return
   submitting.value = true
@@ -223,6 +360,7 @@ async function handlePurchase() {
     }
     showPurchaseDialog.value = false
     load()
+    refreshTeam()
   } catch (e: any) {
     appStore.showError(e?.message ?? 'Failed to purchase')
   } finally { submitting.value = false }

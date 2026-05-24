@@ -134,7 +134,7 @@ func operatorID(c *gin.Context) int64 {
 // membership check (the admin-auth middleware has already verified sys admin
 // access on these routes).
 func reqCtx(c *gin.Context) context.Context {
-	ctx := reqCtx(c)
+	ctx := c.Request.Context()
 	if strings.HasPrefix(c.FullPath(), "/api/v1/admin/") {
 		ctx = service.WithSysAdminCaller(ctx)
 	}
@@ -761,7 +761,12 @@ func (h *Handler) ListMemberSubscriptions(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, subs)
+	// Same DTO wrap as ListSubscriptions — service.UserSubscription has no JSON tags.
+	out := make([]dto.AdminUserSubscription, 0, len(subs))
+	for i := range subs {
+		out = append(out, *dto.UserSubscriptionFromServiceAdmin(&subs[i]))
+	}
+	response.Success(c, out)
 }
 
 // ── Subscriptions / balance ──────────────────────────────────────────────────
@@ -778,7 +783,61 @@ func (h *Handler) ListSubscriptions(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Paginated(c, subs, result.Total, page, pageSize)
+	// service.UserSubscription has no JSON tags, so wrap in the admin DTO that
+	// has the snake_case keys the frontend expects.
+	out := make([]dto.AdminUserSubscription, 0, len(subs))
+	for i := range subs {
+		out = append(out, *dto.UserSubscriptionFromServiceAdmin(&subs[i]))
+	}
+	response.Paginated(c, out, result.Total, page, pageSize)
+}
+
+type resetSubscriptionQuotaRequest struct {
+	Daily   bool `json:"daily"`
+	Weekly  bool `json:"weekly"`
+	Monthly bool `json:"monthly"`
+}
+
+// ResetSubscriptionQuota POST .../subscriptions/:subID/reset-quota
+func (h *Handler) ResetSubscriptionQuota(c *gin.Context) {
+	teamID, ok := resolveTeamID(c)
+	if !ok {
+		return
+	}
+	subID, err := strconv.ParseInt(c.Param("subID"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "invalid subscription id")
+		return
+	}
+	var req resetSubscriptionQuotaRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	sub, err := h.teamService.ResetTeamSubscriptionQuota(reqCtx(c), teamID, subID, operatorID(c), req.Daily, req.Weekly, req.Monthly)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, dto.UserSubscriptionFromServiceAdmin(sub))
+}
+
+// RevokeSubscription DELETE .../subscriptions/:subID
+func (h *Handler) RevokeSubscription(c *gin.Context) {
+	teamID, ok := resolveTeamID(c)
+	if !ok {
+		return
+	}
+	subID, err := strconv.ParseInt(c.Param("subID"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "invalid subscription id")
+		return
+	}
+	if err := h.teamService.RevokeTeamSubscription(reqCtx(c), teamID, subID, operatorID(c)); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"message": "subscription revoked"})
 }
 
 // ListPlans GET /api/v1/team/:teamId/plans

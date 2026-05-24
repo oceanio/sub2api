@@ -52,6 +52,8 @@ func registerAdminTeamRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		teams.GET("/:id/usage/user-breakdown", h.TeamScoped.UsageUserBreakdown)
 		teams.GET("/:id/subscriptions", h.TeamScoped.ListSubscriptions)
 		teams.POST("/:id/subscriptions", h.TeamScoped.PurchaseSubscription)
+		teams.POST("/:id/subscriptions/:subID/reset-quota", h.TeamScoped.ResetSubscriptionQuota)
+		teams.DELETE("/:id/subscriptions/:subID", h.TeamScoped.RevokeSubscription)
 		teams.GET("/:id/plans", h.TeamScoped.ListPlans)
 		teams.GET("/:id/balance", h.TeamScoped.ListBalanceLogs)
 		teams.PUT("/:id/tags", h.TeamScoped.UpdateAvailableTags)

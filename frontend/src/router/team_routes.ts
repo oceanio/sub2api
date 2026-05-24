@@ -45,12 +45,6 @@ export const teamRoutes: RouteRecordRaw[] = [
     component: () => import('@/views/admin/TeamManageBalance.vue'),
     meta: { requiresAuth: true, requiresAdmin: true, titleKey: 'team.nav.balance' },
   },
-  {
-    path: '/admin/teams/:id/tags',
-    name: 'AdminTeamTags',
-    component: () => import('@/views/admin/TeamManageTags.vue'),
-    meta: { requiresAuth: true, requiresAdmin: true, titleKey: 'team.nav.tags' },
-  },
   // ── team_admin (parametric URL: one user can admin multiple teams) ────────
   {
     path: '/team',
@@ -85,11 +79,5 @@ export const teamRoutes: RouteRecordRaw[] = [
     name: 'TeamSubscriptions',
     component: () => import('@/views/team/TeamSubscriptionsView.vue'),
     meta: { requiresAuth: true, requiresAdmin: false, titleKey: 'team.nav.subscriptions' },
-  },
-  {
-    path: '/team/:teamId/tags',
-    name: 'TeamTags',
-    component: () => import('@/views/team/TeamTagsView.vue'),
-    meta: { requiresAuth: true, requiresAdmin: false, titleKey: 'team.nav.tags' },
   },
 ]

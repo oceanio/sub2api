@@ -77,6 +77,8 @@ func RegisterTeamRoutes(
 		scoped.GET("/subscriptions", h.TeamScoped.ListSubscriptions)
 
 		scoped.POST("/subscriptions", h.TeamScoped.PurchaseSubscription)
+		scoped.POST("/subscriptions/:subID/reset-quota", h.TeamScoped.ResetSubscriptionQuota)
+		scoped.DELETE("/subscriptions/:subID", h.TeamScoped.RevokeSubscription)
 		scoped.GET("/plans", h.TeamScoped.ListPlans)
 	}
 }

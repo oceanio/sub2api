@@ -5,7 +5,6 @@ export const teamMessages = {
     usage: 'Usage',
     subscriptions: 'Subscriptions',
     balance: 'Balance',
-    tags: 'Tags',
   },
   overview: {
     balance: 'Team Balance',

@@ -74,11 +74,21 @@ export interface TeamSubscription {
   starts_at: string
   expires_at: string
   status: string
+  daily_window_start?: string | null
+  weekly_window_start?: string | null
+  monthly_window_start?: string | null
   daily_usage_usd: number
   weekly_usage_usd: number
   monthly_usage_usd: number
   user?: { id: number; email: string; username: string }
-  group?: { id: number; name: string; platform: string }
+  group?: {
+    id: number
+    name: string
+    platform: string
+    daily_limit_usd?: number | null
+    weekly_limit_usd?: number | null
+    monthly_limit_usd?: number | null
+  }
 }
 
 export interface SubscriptionPlan {
@@ -462,6 +472,23 @@ export async function listPlans(source: Source, teamId: number): Promise<Subscri
   return data
 }
 
+export async function resetSubscriptionQuota(
+  source: Source,
+  teamId: number,
+  subID: number,
+  opts: { daily: boolean; weekly: boolean; monthly: boolean },
+): Promise<TeamSubscription> {
+  const { data } = await apiClient.post<TeamSubscription>(
+    `${teamBasePath(source, teamId)}/subscriptions/${subID}/reset-quota`,
+    opts,
+  )
+  return data
+}
+
+export async function revokeSubscription(source: Source, teamId: number, subID: number): Promise<void> {
+  await apiClient.delete(`${teamBasePath(source, teamId)}/subscriptions/${subID}`)
+}
+
 export async function listBalanceLogs(source: Source, teamId: number, page = 1, pageSize = 20): Promise<PaginatedResponse<TeamBalanceLog>> {
   const { data } = await apiClient.get<PaginatedResponse<TeamBalanceLog>>(
     `${teamBasePath(source, teamId)}/balance`,
@@ -543,6 +570,8 @@ export const teamAPI = {
   listSubscriptions,
   purchaseSubscription,
   listPlans,
+  resetSubscriptionQuota,
+  revokeSubscription,
   listBalanceLogs,
   updateAvailableTags,
   adminListTeams,

@@ -34,7 +34,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, provide, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
@@ -76,7 +76,6 @@ const tabs = computed(() => {
     { label: t('team.nav.usage'), path: `${base}/usage` },
     { label: t('team.nav.subscriptions'), path: `${base}/subscriptions` },
     { label: t('team.nav.balance'), path: `${base}/balance` },
-    { label: t('team.nav.tags'), path: `${base}/tags` },
   ]
 })
 
@@ -108,6 +107,15 @@ async function loadTeam(force = false) {
     appStore.showError(e?.message ?? 'Failed')
   }
 }
+
+// Children (e.g. TeamSubscriptionsList after purchase/refund) inject this to
+// force the header balance to refresh.
+provide('refreshTeam', () => {
+  if (props.source === 'admin') {
+    teamStore.invalidateAdminTeam(props.teamId)
+  }
+  loadTeam(true)
+})
 
 watch(() => props.teamId, (id) => {
   if (!id) return

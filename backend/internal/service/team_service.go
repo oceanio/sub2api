@@ -901,7 +901,9 @@ func (s *TeamService) processPurchaseBatch(
 		if isRenewal {
 			action = "renew"
 		}
-		note := fmt.Sprintf("%s plan %d for user %d", action, planID, uid)
+		// Use the plan name (not the numeric id) so balance-log readers can tell
+		// at a glance which subscription was bought without joining tables.
+		note := fmt.Sprintf("%s %q for user %d", action, plan.Name, uid)
 		if _, err := tx.TeamBalanceLog.Create().
 			SetTeamID(teamID).
 			SetType(TeamBalanceLogTypeSubscriptionPurchase).
@@ -921,6 +923,44 @@ func (s *TeamService) processPurchaseBatch(
 	}
 	committed = true
 	return subs, false, nil
+}
+
+// requireTeamSubscription verifies a subscription exists and is stamped with
+// the given teamID, so a team_admin can only operate on subscriptions paid
+// for by their own team. Returns the subscription on success.
+func (s *TeamService) requireTeamSubscription(ctx context.Context, teamID, subID int64) (*UserSubscription, error) {
+	sub, err := s.userSubRepo.GetByID(ctx, subID)
+	if err != nil {
+		return nil, err
+	}
+	if sub.TeamID == nil || *sub.TeamID != teamID {
+		return nil, ErrSubscriptionNotFound
+	}
+	return sub, nil
+}
+
+// ResetTeamSubscriptionQuota clears the requested usage windows on a
+// team-owned subscription. Pure admin op — no balance impact.
+func (s *TeamService) ResetTeamSubscriptionQuota(ctx context.Context, teamID, subID, operatorID int64, daily, weekly, monthly bool) (*UserSubscription, error) {
+	if err := s.requireTeamAdmin(ctx, teamID, operatorID); err != nil {
+		return nil, err
+	}
+	if _, err := s.requireTeamSubscription(ctx, teamID, subID); err != nil {
+		return nil, err
+	}
+	return s.subService.AdminResetQuota(ctx, subID, daily, weekly, monthly)
+}
+
+// RevokeTeamSubscription cancels a team-owned subscription. Balance is NOT
+// refunded — refunds go through the separate refund flow.
+func (s *TeamService) RevokeTeamSubscription(ctx context.Context, teamID, subID, operatorID int64) error {
+	if err := s.requireTeamAdmin(ctx, teamID, operatorID); err != nil {
+		return err
+	}
+	if _, err := s.requireTeamSubscription(ctx, teamID, subID); err != nil {
+		return err
+	}
+	return s.subService.RevokeSubscription(ctx, subID)
 }
 
 // ListTeamSubscriptions returns paginated subscriptions purchased by this team (team_admin path).
