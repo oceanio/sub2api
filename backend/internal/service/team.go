@@ -141,7 +141,7 @@ type TeamMemberRepository interface {
 	UpdateTags(ctx context.Context, id int64, tags []string) error
 	SoftDelete(ctx context.Context, id int64) error
 	ListByTeamID(ctx context.Context, teamID int64, params pagination.PaginationParams) ([]TeamMember, *pagination.PaginationResult, error)
-	ListByTeamIDFiltered(ctx context.Context, teamID int64, tags []string, params pagination.PaginationParams) ([]TeamMember, *pagination.PaginationResult, error)
+	ListByTeamIDFiltered(ctx context.Context, teamID int64, filters TeamMemberListFilters, params pagination.PaginationParams) ([]TeamMember, *pagination.PaginationResult, error)
 	UpdateSubQuota(ctx context.Context, id int64, subQuota float64) error
 	IncrementSubQuotaUsed(ctx context.Context, id int64, cost float64) error
 	DisableAPIKeysByTeamID(ctx context.Context, userID, teamID int64) error

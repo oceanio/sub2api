@@ -219,8 +219,12 @@ func (h *Handler) ListMembers(c *gin.Context) {
 			cleanTags = append(cleanTags, t)
 		}
 	}
+	filters := service.TeamMemberListFilters{
+		Tags:   cleanTags,
+		Search: c.Query("search"),
+	}
 
-	members, result, err := h.teamService.ListMembersFiltered(reqCtx(c), teamID, operatorID(c), cleanTags, params)
+	members, result, err := h.teamService.ListMembersFiltered(reqCtx(c), teamID, operatorID(c), filters, params)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -778,7 +782,16 @@ func (h *Handler) ListSubscriptions(c *gin.Context) {
 	}
 	page, pageSize := response.ParsePagination(c)
 	params := pagination.PaginationParams{Page: page, PageSize: pageSize, SortBy: "created_at", SortOrder: "desc"}
-	subs, result, err := h.teamService.ListTeamSubscriptions(reqCtx(c), teamID, operatorID(c), params)
+	filters := service.UserSubscriptionTeamFilters{
+		Status: c.Query("status"),
+		Search: c.Query("search"),
+	}
+	if g := c.Query("group_id"); g != "" {
+		if id, err := strconv.ParseInt(g, 10, 64); err == nil {
+			filters.GroupID = &id
+		}
+	}
+	subs, result, err := h.teamService.ListTeamSubscriptions(reqCtx(c), teamID, operatorID(c), filters, params)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

@@ -810,7 +810,7 @@ func (r *stubUserSubscriptionRepo) ListByGroupID(ctx context.Context, groupID in
 	return nil, nil, errors.New("not implemented")
 }
 
-func (r *stubUserSubscriptionRepo) ListByTeamID(ctx context.Context, teamID int64, params pagination.PaginationParams) ([]service.UserSubscription, *pagination.PaginationResult, error) {
+func (r *stubUserSubscriptionRepo) ListByTeamID(ctx context.Context, teamID int64, _ service.UserSubscriptionTeamFilters, params pagination.PaginationParams) ([]service.UserSubscription, *pagination.PaginationResult, error) {
 	return nil, nil, errors.New("not implemented")
 }
 

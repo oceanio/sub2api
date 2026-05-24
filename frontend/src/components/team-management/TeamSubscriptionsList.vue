@@ -1,11 +1,71 @@
 <template>
   <TablePageLayout>
-    <template #actions>
-      <div class="flex justify-end gap-3">
-        <button class="btn btn-primary" @click="openPurchase">
-          <Icon name="plus" size="md" class="mr-2" />
-          {{ t('team.subscriptions.purchase') }}
-        </button>
+    <template #filters>
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="flex flex-1 flex-wrap items-center gap-3">
+          <div class="relative w-full sm:w-64">
+            <Icon name="search" size="md" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              v-model="searchQuery"
+              type="text"
+              :placeholder="t('team.subscriptions.searchPlaceholder')"
+              class="input pl-10"
+              @input="onSearchInput"
+            />
+          </div>
+          <div class="w-full sm:w-32">
+            <Select
+              v-model="filterStatus"
+              :options="statusOptions"
+              :placeholder="t('admin.subscriptions.allStatus')"
+              @change="onFilterChange"
+            />
+          </div>
+          <div class="w-full sm:w-44">
+            <Select
+              v-model="filterGroupId"
+              :options="groupOptions"
+              :placeholder="t('admin.subscriptions.allGroups')"
+              searchable
+              @change="onFilterChange"
+            />
+          </div>
+        </div>
+        <div class="flex flex-wrap items-center justify-end gap-2">
+          <button class="btn btn-secondary px-2 md:px-3" :disabled="loading" :title="t('common.refresh')" @click="load">
+            <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
+          </button>
+          <div class="relative" ref="columnDropdownRef">
+            <button
+              class="btn btn-secondary px-2 md:px-3"
+              :title="t('admin.users.columnSettings')"
+              @click="showColumnDropdown = !showColumnDropdown"
+            >
+              <svg class="h-4 w-4 md:mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125z" />
+              </svg>
+              <span class="hidden md:inline">{{ t('admin.users.columnSettings') }}</span>
+            </button>
+            <div
+              v-if="showColumnDropdown"
+              class="absolute right-0 top-full z-50 mt-1 w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
+            >
+              <button
+                v-for="col in toggleableColumns"
+                :key="col.key"
+                class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+                @click="toggleColumn(col.key)"
+              >
+                <span>{{ col.label }}</span>
+                <Icon v-if="isColumnVisible(col.key)" name="check" size="sm" class="text-primary-500" :stroke-width="2" />
+              </button>
+            </div>
+          </div>
+          <button class="btn btn-primary" @click="openPurchase">
+            <Icon name="plus" size="md" class="mr-2" />
+            {{ t('team.subscriptions.purchase') }}
+          </button>
+        </div>
       </div>
     </template>
 
@@ -181,7 +241,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, ref, watch } from 'vue'
+import { computed, inject, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { teamAPI, type TeamSubscription, type TeamMember, type Team, type SubscriptionPlan } from '@/api/team'
@@ -226,7 +286,7 @@ const purchaseForm = ref<{ allMembers: boolean; userIds: number[]; planId: numbe
   planId: null,
 })
 
-const columns = computed<Column[]>(() => [
+const allColumns = computed<Column[]>(() => [
   { key: 'user', label: t('team.members.email'), sortable: false },
   { key: 'group', label: t('team.members.subscriptionStatus'), sortable: false },
   { key: 'status', label: t('common.status'), sortable: false },
@@ -234,6 +294,56 @@ const columns = computed<Column[]>(() => [
   { key: 'usage', label: t('team.subscriptions.usage'), sortable: false },
   { key: 'actions', label: t('common.actions'), sortable: false },
 ])
+
+// Column visibility (localStorage). user + actions are always visible.
+const HIDDEN_COLUMNS_KEY = 'team-subscriptions-hidden-columns'
+const FORCED_VISIBLE = new Set(['user', 'actions'])
+const hiddenColumns = reactive<Set<string>>(new Set())
+const showColumnDropdown = ref(false)
+const columnDropdownRef = ref<HTMLElement | null>(null)
+try {
+  const raw = localStorage.getItem(HIDDEN_COLUMNS_KEY)
+  if (raw) (JSON.parse(raw) as string[]).filter(k => !FORCED_VISIBLE.has(k)).forEach(k => hiddenColumns.add(k))
+} catch { /* ignore */ }
+function saveHiddenCols() {
+  try { localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns])) } catch { /* ignore */ }
+}
+const columns = computed<Column[]>(() => allColumns.value.filter(c => FORCED_VISIBLE.has(c.key) || !hiddenColumns.has(c.key)))
+const toggleableColumns = computed(() => allColumns.value.filter(c => !FORCED_VISIBLE.has(c.key)))
+function isColumnVisible(key: string) { return !hiddenColumns.has(key) }
+function toggleColumn(key: string) {
+  if (FORCED_VISIBLE.has(key)) return
+  if (hiddenColumns.has(key)) hiddenColumns.delete(key)
+  else hiddenColumns.add(key)
+  saveHiddenCols()
+}
+
+// Filter state
+const filterStatus = ref<string>('')
+const filterGroupId = ref<number | ''>('')
+const searchQuery = ref('')
+let searchDebounce: any = null
+function onSearchInput() {
+  clearTimeout(searchDebounce)
+  searchDebounce = setTimeout(() => { page.value = 1; load() }, 300)
+}
+const statusOptions = computed(() => [
+  { value: '', label: t('admin.subscriptions.allStatus') },
+  { value: 'active', label: t('admin.subscriptions.status.active') },
+  { value: 'expired', label: t('admin.subscriptions.status.expired') },
+  { value: 'revoked', label: t('admin.subscriptions.status.revoked') },
+])
+const groupOptions = computed(() => {
+  const seen = new Map<number, string>()
+  for (const s of subscriptions.value) {
+    if (s.group && !seen.has(s.group.id)) seen.set(s.group.id, s.group.name)
+  }
+  return [
+    { value: '', label: t('admin.subscriptions.allGroups') },
+    ...[...seen].map(([id, name]) => ({ value: id, label: name })),
+  ]
+})
+function onFilterChange() { page.value = 1; load() }
 
 const planOptions = computed(() =>
   plans.value.map(p => ({ value: p.id, label: `${p.name} — $${p.price.toFixed(2)} / ${p.validity_days}d` }))
@@ -289,7 +399,11 @@ function formatDateOnly(v: string): string {
 async function load() {
   loading.value = true
   try {
-    const res = await teamAPI.listSubscriptions(props.source, props.teamId, page.value, pageSize.value)
+    const res = await teamAPI.listSubscriptions(props.source, props.teamId, page.value, pageSize.value, {
+      status: filterStatus.value || undefined,
+      groupID: filterGroupId.value === '' ? undefined : Number(filterGroupId.value),
+      search: searchQuery.value.trim() || undefined,
+    })
     subscriptions.value = (res as any).items ?? []
     total.value = (res as any).total ?? 0
   } catch (e: any) {
@@ -368,4 +482,12 @@ async function handlePurchase() {
 }
 
 watch(() => props.teamId, () => { page.value = 1; load() }, { immediate: true })
+
+function handleClickOutside(e: MouseEvent) {
+  if (showColumnDropdown.value && columnDropdownRef.value && !columnDropdownRef.value.contains(e.target as Node)) {
+    showColumnDropdown.value = false
+  }
+}
+onMounted(() => document.addEventListener('click', handleClickOutside))
+onUnmounted(() => document.removeEventListener('click', handleClickOutside))
 </script>

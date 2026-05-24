@@ -504,25 +504,26 @@ func (s *TeamService) RemoveMember(ctx context.Context, req RemoveTeamMemberRequ
 
 // ListMembers returns paginated members for a team with stats.
 func (s *TeamService) ListMembers(ctx context.Context, teamID int64, operatorID int64, params pagination.PaginationParams) ([]TeamMember, *pagination.PaginationResult, error) {
-	return s.ListMembersFiltered(ctx, teamID, operatorID, nil, params)
+	return s.ListMembersFiltered(ctx, teamID, operatorID, TeamMemberListFilters{}, params)
 }
 
-// ListMembersFiltered returns paginated members for a team, filtered by tags (OR-match).
-func (s *TeamService) ListMembersFiltered(ctx context.Context, teamID, operatorID int64, tags []string, params pagination.PaginationParams) ([]TeamMember, *pagination.PaginationResult, error) {
+// ListMembersFiltered returns paginated members for a team, filtered by tags (OR-match) and/or search.
+func (s *TeamService) ListMembersFiltered(ctx context.Context, teamID, operatorID int64, filters TeamMemberListFilters, params pagination.PaginationParams) ([]TeamMember, *pagination.PaginationResult, error) {
 	if err := s.requireTeamAdmin(ctx, teamID, operatorID); err != nil {
 		return nil, nil, err
 	}
-	return s.listMembersScoped(ctx, teamID, tags, params)
+	return s.listMembersScoped(ctx, teamID, filters, params)
 }
 
-func (s *TeamService) listMembersScoped(ctx context.Context, teamID int64, tags []string, params pagination.PaginationParams) ([]TeamMember, *pagination.PaginationResult, error) {
+func (s *TeamService) listMembersScoped(ctx context.Context, teamID int64, filters TeamMemberListFilters, params pagination.PaginationParams) ([]TeamMember, *pagination.PaginationResult, error) {
 	var (
 		members []TeamMember
 		result  *pagination.PaginationResult
 		err     error
 	)
-	if len(tags) > 0 {
-		members, result, err = s.memberRepo.ListByTeamIDFiltered(ctx, teamID, tags, params)
+	hasFilter := len(filters.Tags) > 0 || filters.Search != ""
+	if hasFilter {
+		members, result, err = s.memberRepo.ListByTeamIDFiltered(ctx, teamID, filters, params)
 	} else {
 		members, result, err = s.memberRepo.ListByTeamID(ctx, teamID, params)
 	}
@@ -964,11 +965,11 @@ func (s *TeamService) RevokeTeamSubscription(ctx context.Context, teamID, subID,
 }
 
 // ListTeamSubscriptions returns paginated subscriptions purchased by this team (team_admin path).
-func (s *TeamService) ListTeamSubscriptions(ctx context.Context, teamID, operatorID int64, params pagination.PaginationParams) ([]UserSubscription, *pagination.PaginationResult, error) {
+func (s *TeamService) ListTeamSubscriptions(ctx context.Context, teamID, operatorID int64, filters UserSubscriptionTeamFilters, params pagination.PaginationParams) ([]UserSubscription, *pagination.PaginationResult, error) {
 	if err := s.requireTeamAdmin(ctx, teamID, operatorID); err != nil {
 		return nil, nil, err
 	}
-	subs, result, err := s.userSubRepo.ListByTeamID(ctx, teamID, params)
+	subs, result, err := s.userSubRepo.ListByTeamID(ctx, teamID, filters, params)
 	if err != nil {
 		return nil, nil, fmt.Errorf("list team subscriptions: %w", err)
 	}

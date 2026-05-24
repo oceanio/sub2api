@@ -2,10 +2,12 @@ package repository
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -151,9 +153,18 @@ func (r *userSubscriptionRepository) ListByUserID(ctx context.Context, userID in
 	return userSubscriptionEntitiesToService(subs), nil
 }
 
-func (r *userSubscriptionRepository) ListByTeamID(ctx context.Context, teamID int64, params pagination.PaginationParams) ([]service.UserSubscription, *pagination.PaginationResult, error) {
+func (r *userSubscriptionRepository) ListByTeamID(ctx context.Context, teamID int64, filters service.UserSubscriptionTeamFilters, params pagination.PaginationParams) ([]service.UserSubscription, *pagination.PaginationResult, error) {
 	client := clientFromContext(ctx, r.client)
 	q := client.UserSubscription.Query().Where(usersubscription.TeamIDEQ(teamID))
+	if filters.Status != "" {
+		q = q.Where(usersubscription.StatusEQ(filters.Status))
+	}
+	if filters.GroupID != nil {
+		q = q.Where(usersubscription.GroupIDEQ(*filters.GroupID))
+	}
+	if search := strings.TrimSpace(filters.Search); search != "" {
+		q = q.Where(usersubscription.HasUserWith(user.EmailContainsFold(search)))
+	}
 
 	total, err := q.Count(ctx)
 	if err != nil {

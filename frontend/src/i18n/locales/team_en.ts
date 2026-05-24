@@ -40,6 +40,8 @@ export const teamMessages = {
     noMembers: 'No members yet',
     createFirstMember: 'Create the first team member.',
     memberCreated: 'Member created',
+    searchPlaceholder: 'Search email or username',
+    allTags: 'All Tags',
     batchImport: 'Batch Import',
     batchImportHint: 'One member per line in CSV: email,password[,username]. Lines starting with # are ignored. Password must be at least 8 characters.',
     batchImportInput: 'Paste rows',
@@ -72,6 +74,7 @@ export const teamMessages = {
   },
   subscriptions: {
     title: 'Team Subscriptions',
+    searchPlaceholder: 'Search member email',
     purchase: 'Purchase / Renew Subscription',
     selectMember: 'Select Members (multiple)',
     forAllMembers: 'Purchase / Renew for ALL team members ({count} currently)',

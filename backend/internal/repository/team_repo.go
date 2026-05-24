@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -12,6 +13,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/teamadmin"
 	"github.com/Wei-Shaw/sub2api/ent/teambalancelog"
 	"github.com/Wei-Shaw/sub2api/ent/teammember"
+	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -437,17 +439,28 @@ func (r *teamMemberRepository) queryMemberIDsByTags(ctx context.Context, teamID 
 	return ids, rows.Err()
 }
 
-func (r *teamMemberRepository) ListByTeamIDFiltered(ctx context.Context, teamID int64, tags []string, params pagination.PaginationParams) ([]service.TeamMember, *pagination.PaginationResult, error) {
+func (r *teamMemberRepository) ListByTeamIDFiltered(ctx context.Context, teamID int64, filters service.TeamMemberListFilters, params pagination.PaginationParams) ([]service.TeamMember, *pagination.PaginationResult, error) {
 	q := r.client.TeamMember.Query().
 		Where(teammember.TeamIDEQ(teamID), teammember.DeletedAtIsNil())
 
-	if len(tags) > 0 {
+	if search := strings.TrimSpace(filters.Search); search != "" {
+		// Case-insensitive substring on user.email OR user.username via the
+		// team_member.user edge.
+		q = q.Where(teammember.HasUserWith(
+			user.Or(
+				user.EmailContainsFold(search),
+				user.UsernameContainsFold(search),
+			),
+		))
+	}
+
+	if len(filters.Tags) > 0 {
 		// ent's placeholder rewriter doesn't translate `?` inside a Where(func)
 		// sub-expression for Postgres (the literal `?` survives, and Postgres
 		// then interprets it as the jsonb-key-exists operator — "syntax error
 		// at or near )" in staging). Sidestep by pre-resolving matching IDs
 		// via raw SQL and feeding them back through ent.
-		filteredIDs, err := r.queryMemberIDsByTags(ctx, teamID, tags)
+		filteredIDs, err := r.queryMemberIDsByTags(ctx, teamID, filters.Tags)
 		if err != nil {
 			return nil, nil, err
 		}

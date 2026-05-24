@@ -7,6 +7,14 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
+// UserSubscriptionTeamFilters scopes a team-owned subscription listing.
+// All fields are optional — empty means "no constraint".
+type UserSubscriptionTeamFilters struct {
+	Status  string // "active" | "expired" | "revoked"
+	GroupID *int64
+	Search  string // matches user.email substring (case-insensitive)
+}
+
 type UserSubscriptionRepository interface {
 	Create(ctx context.Context, sub *UserSubscription) error
 	GetByID(ctx context.Context, id int64) (*UserSubscription, error)
@@ -18,7 +26,7 @@ type UserSubscriptionRepository interface {
 	ListByUserID(ctx context.Context, userID int64) ([]UserSubscription, error)
 	ListActiveByUserID(ctx context.Context, userID int64) ([]UserSubscription, error)
 	ListByGroupID(ctx context.Context, groupID int64, params pagination.PaginationParams) ([]UserSubscription, *pagination.PaginationResult, error)
-	ListByTeamID(ctx context.Context, teamID int64, params pagination.PaginationParams) ([]UserSubscription, *pagination.PaginationResult, error)
+	ListByTeamID(ctx context.Context, teamID int64, filters UserSubscriptionTeamFilters, params pagination.PaginationParams) ([]UserSubscription, *pagination.PaginationResult, error)
 	List(ctx context.Context, params pagination.PaginationParams, userID, groupID *int64, status, platform, sortBy, sortOrder string) ([]UserSubscription, *pagination.PaginationResult, error)
 
 	ExistsByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (bool, error)

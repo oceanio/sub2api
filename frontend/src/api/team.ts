@@ -136,14 +136,13 @@ export async function listMembers(
   teamId: number,
   page = 1,
   pageSize = 20,
-  tags?: string[]
+  opts: { tags?: string[]; search?: string } = {},
 ): Promise<PaginatedResponse<TeamMember>> {
   const params = new URLSearchParams()
   params.set('page', String(page))
   params.set('page_size', String(pageSize))
-  if (tags && tags.length > 0) {
-    for (const t of tags) params.append('tag', t)
-  }
+  if (opts.tags && opts.tags.length > 0) for (const t of opts.tags) params.append('tag', t)
+  if (opts.search) params.set('search', opts.search)
   const { data } = await apiClient.get<PaginatedResponse<TeamMember>>(
     `${teamBasePath(source, teamId)}/members?${params.toString()}`
   )
@@ -433,10 +432,20 @@ export async function getUsageUserBreakdown(
   return data
 }
 
-export async function listSubscriptions(source: Source, teamId: number, page = 1, pageSize = 20): Promise<PaginatedResponse<TeamSubscription>> {
+export async function listSubscriptions(
+  source: Source,
+  teamId: number,
+  page = 1,
+  pageSize = 20,
+  opts: { status?: string; groupID?: number; search?: string } = {},
+): Promise<PaginatedResponse<TeamSubscription>> {
+  const params: Record<string, string | number> = { page, page_size: pageSize }
+  if (opts.status) params.status = opts.status
+  if (opts.groupID) params.group_id = opts.groupID
+  if (opts.search) params.search = opts.search
   const { data } = await apiClient.get<PaginatedResponse<TeamSubscription>>(
     `${teamBasePath(source, teamId)}/subscriptions`,
-    { params: { page, page_size: pageSize } }
+    { params }
   )
   return data
 }

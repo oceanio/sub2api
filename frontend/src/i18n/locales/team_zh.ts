@@ -40,6 +40,8 @@ export const teamMessages = {
     noMembers: '暂无成员',
     createFirstMember: '创建第一个团队成员。',
     memberCreated: '成员已创建',
+    searchPlaceholder: '搜索邮箱或用户名',
+    allTags: '全部标签',
     batchImport: '批量导入',
     batchImportHint: '每行一个成员，CSV 格式：email,password[,username]。# 开头的行被忽略。密码至少 8 位。',
     batchImportInput: '粘贴数据',
@@ -72,6 +74,7 @@ export const teamMessages = {
   },
   subscriptions: {
     title: '团队订阅',
+    searchPlaceholder: '搜索成员邮箱',
     purchase: '购买 / 续费订阅',
     selectMember: '选择成员（可多选）',
     forAllMembers: '为团队全员购买 / 续费（当前 {count} 人）',

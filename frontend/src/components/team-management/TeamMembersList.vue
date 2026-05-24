@@ -1,41 +1,72 @@
 <template>
   <TablePageLayout>
     <template #filters>
-      <div class="flex flex-wrap items-end gap-3">
-        <div class="min-w-[260px]">
-          <label class="input-label">{{ t('team.members.tags') }}</label>
-          <div class="flex flex-wrap gap-2">
-            <button
-              v-for="tag in allTags"
-              :key="tag"
-              @click="toggleTagFilter(tag)"
-              :class="[
-                'rounded-full px-3 py-1 text-xs transition',
-                filterTags.includes(tag)
-                  ? 'bg-primary-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-dark-700 dark:text-dark-200',
-              ]"
-            >{{ tag }}</button>
-            <span v-if="allTags.length === 0" class="text-sm text-gray-400">{{ t('team.tags.noTags') }}</span>
+      <div class="flex flex-wrap items-center gap-3">
+        <!-- Left: search + tag filter -->
+        <div class="flex flex-1 flex-wrap items-center gap-3">
+          <div class="relative w-full sm:w-64">
+            <Icon name="search" size="md" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              v-model="searchQuery"
+              type="text"
+              :placeholder="t('team.members.searchPlaceholder')"
+              class="input pl-10"
+              @input="onSearchInput"
+            />
+          </div>
+          <div v-if="allTags.length > 0" class="w-full sm:w-40">
+            <Select
+              v-model="filterTag"
+              :options="tagOptions"
+              :placeholder="t('team.members.allTags')"
+              @change="onTagChange"
+            />
           </div>
         </div>
-      </div>
-    </template>
-
-    <template #actions>
-      <div class="flex justify-end gap-3">
-        <button class="btn btn-primary" @click="showCreateDialog = true">
-          <Icon name="plus" size="md" class="mr-2" />
-          {{ t('team.members.addMember') }}
-        </button>
-        <button class="btn btn-secondary" @click="openBatchImport">
-          <Icon name="upload" size="md" class="mr-2" />
-          {{ t('team.members.batchImport') }}
-        </button>
-        <button v-if="source === 'admin'" class="btn btn-secondary" @click="openAddExisting">
-          <Icon name="userPlus" size="md" class="mr-2" />
-          {{ t('team.adminTeams.addMember') }}
-        </button>
+        <!-- Right: actions -->
+        <div class="flex flex-wrap items-center justify-end gap-2">
+          <button class="btn btn-secondary px-2 md:px-3" :disabled="loading" :title="t('common.refresh')" @click="load">
+            <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
+          </button>
+          <div class="relative" ref="columnDropdownRef">
+            <button
+              class="btn btn-secondary px-2 md:px-3"
+              :title="t('admin.users.columnSettings')"
+              @click="showColumnDropdown = !showColumnDropdown"
+            >
+              <svg class="h-4 w-4 md:mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125z" />
+              </svg>
+              <span class="hidden md:inline">{{ t('admin.users.columnSettings') }}</span>
+            </button>
+            <div
+              v-if="showColumnDropdown"
+              class="absolute right-0 top-full z-50 mt-1 w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
+            >
+              <button
+                v-for="col in toggleableColumns"
+                :key="col.key"
+                class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+                @click="toggleColumn(col.key)"
+              >
+                <span>{{ col.label }}</span>
+                <Icon v-if="isColumnVisible(col.key)" name="check" size="sm" class="text-primary-500" :stroke-width="2" />
+              </button>
+            </div>
+          </div>
+          <button class="btn btn-primary" @click="showCreateDialog = true">
+            <Icon name="plus" size="md" class="mr-2" />
+            {{ t('team.members.addMember') }}
+          </button>
+          <button class="btn btn-secondary" @click="openBatchImport">
+            <Icon name="upload" size="md" class="mr-2" />
+            {{ t('team.members.batchImport') }}
+          </button>
+          <button v-if="source === 'admin'" class="btn btn-secondary" @click="openAddExisting">
+            <Icon name="userPlus" size="md" class="mr-2" />
+            {{ t('team.adminTeams.addMember') }}
+          </button>
+        </div>
       </div>
     </template>
 
@@ -291,7 +322,7 @@ carol@example.com,Carol123!,Carol</pre>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { teamAPI, type TeamMember, type Team } from '@/api/team'
@@ -300,6 +331,7 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import Select from '@/components/common/Select.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { formatDateTime } from '@/utils/format'
@@ -335,9 +367,28 @@ const removeTarget = ref<TeamMember | null>(null)
 const activeTarget = ref<TeamMember | null>(null)
 const newTag = ref('')
 
-const filterTags = ref<string[]>([])
+const filterTag = ref<string>('')
+const searchQuery = ref('')
+let searchDebounce: any = null
 const inlineEditId = ref<number | null>(null)
 const inlineEditValue = ref<number>(0)
+
+// Column visibility: hidden set persisted in localStorage. Default: nothing hidden.
+const HIDDEN_COLUMNS_KEY = 'team-members-hidden-columns'
+const FORCED_VISIBLE = new Set(['user', 'actions'])
+const hiddenColumns = reactive<Set<string>>(new Set())
+const showColumnDropdown = ref(false)
+const columnDropdownRef = ref<HTMLElement | null>(null)
+try {
+  const raw = localStorage.getItem(HIDDEN_COLUMNS_KEY)
+  if (raw) {
+    const arr = JSON.parse(raw) as string[]
+    arr.filter(k => !FORCED_VISIBLE.has(k)).forEach(k => hiddenColumns.add(k))
+  }
+} catch { /* ignore */ }
+function saveHiddenCols() {
+  try { localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns])) } catch { /* ignore */ }
+}
 
 const createForm = ref({ email: '', username: '', password: '' })
 const tagsForm = ref({ tags: [] as string[] })
@@ -355,7 +406,7 @@ const allTags = computed(() => {
   return Array.from(set).sort()
 })
 
-const columns = computed<Column[]>(() => [
+const allColumns = computed<Column[]>(() => [
   { key: 'user', label: t('team.members.email'), sortable: false },
   { key: 'is_admin', label: t('team.members.role'), sortable: false },
   { key: 'tags', label: t('team.members.tags'), sortable: false },
@@ -364,14 +415,26 @@ const columns = computed<Column[]>(() => [
   { key: 'last_active_at', label: t('team.members.lastActive'), sortable: false },
   { key: 'actions', label: t('common.actions'), sortable: false },
 ])
-
-function toggleTagFilter(tag: string) {
-  const idx = filterTags.value.indexOf(tag)
-  if (idx >= 0) filterTags.value.splice(idx, 1)
-  else filterTags.value.push(tag)
-  page.value = 1
-  load()
+const columns = computed<Column[]>(() => allColumns.value.filter(c => FORCED_VISIBLE.has(c.key) || !hiddenColumns.has(c.key)))
+const toggleableColumns = computed(() => allColumns.value.filter(c => !FORCED_VISIBLE.has(c.key)))
+function isColumnVisible(key: string) { return !hiddenColumns.has(key) }
+function toggleColumn(key: string) {
+  if (FORCED_VISIBLE.has(key)) return
+  if (hiddenColumns.has(key)) hiddenColumns.delete(key)
+  else hiddenColumns.add(key)
+  saveHiddenCols()
 }
+
+function onSearchInput() {
+  clearTimeout(searchDebounce)
+  searchDebounce = setTimeout(() => { page.value = 1; load() }, 300)
+}
+
+const tagOptions = computed(() => [
+  { value: '', label: t('team.members.allTags') },
+  ...allTags.value.map(tag => ({ value: tag, label: tag })),
+])
+function onTagChange() { page.value = 1; load() }
 
 function startInline(m: TeamMember) { inlineEditId.value = m.id; inlineEditValue.value = m.sub_quota }
 function cancelInline() { inlineEditId.value = null }
@@ -394,7 +457,10 @@ async function load() {
   try {
     const [tm, res] = await Promise.all([
       teamAPI.getTeam(props.source, props.teamId),
-      teamAPI.listMembers(props.source, props.teamId, page.value, pageSize.value, filterTags.value.length > 0 ? filterTags.value : undefined),
+      teamAPI.listMembers(props.source, props.teamId, page.value, pageSize.value, {
+        tags: filterTag.value ? [filterTag.value] : undefined,
+        search: searchQuery.value.trim() || undefined,
+      }),
     ])
     team.value = tm
     members.value = (res as any).items ?? []
@@ -601,4 +667,13 @@ async function handleAddExisting() {
 }
 
 watch(() => props.teamId, () => { page.value = 1; load() }, { immediate: true })
+
+// Close column dropdown on outside click.
+function handleClickOutside(e: MouseEvent) {
+  if (showColumnDropdown.value && columnDropdownRef.value && !columnDropdownRef.value.contains(e.target as Node)) {
+    showColumnDropdown.value = false
+  }
+}
+onMounted(() => document.addEventListener('click', handleClickOutside))
+onUnmounted(() => document.removeEventListener('click', handleClickOutside))
 </script>
