@@ -41,6 +41,7 @@ import (
 // is duplicated locally (snapshot_cache.go in this package) so adding the
 // team feature does not touch any admin file.
 var (
+	teamUsageStatsCache    = newSnapshotCache(30 * time.Second)
 	teamTrendCache         = newSnapshotCache(30 * time.Second)
 	teamModelStatsCache    = newSnapshotCache(30 * time.Second)
 	teamGroupStatsCache    = newSnapshotCache(30 * time.Second)
@@ -392,13 +393,20 @@ func (h *Handler) UsageStats(c *gin.Context) {
 	if !ok {
 		return
 	}
-	stats, err := h.teamService.GetUsageStats(reqCtx(c), filters)
+	key := buildTeamChartCacheKey("usage-stats", filters)
+	entry, _, err := teamUsageStatsCache.GetOrLoad(key, func() (any, error) {
+		stats, err := h.teamService.GetUsageStats(reqCtx(c), filters)
+		if err != nil {
+			return nil, err
+		}
+		stripUsageStatsCost(stats)
+		return stats, nil
+	})
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	stripUsageStatsCost(stats)
-	response.Success(c, stats)
+	response.Success(c, entry.Payload)
 }
 
 func (h *Handler) UsageTrend(c *gin.Context) {

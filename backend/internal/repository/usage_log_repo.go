@@ -4027,31 +4027,40 @@ func (r *usageLogRepository) queryUsageLogs(ctx context.Context, query string, a
 }
 
 func (r *usageLogRepository) hydrateUsageLogAssociations(ctx context.Context, logs []service.UsageLog) error {
-	// 关联数据使用 Ent 批量加载，避免把复杂 SQL 继续膨胀。
 	if len(logs) == 0 {
 		return nil
 	}
 
 	ids := collectUsageLogIDs(logs)
-	users, err := r.loadUsers(ctx, ids.userIDs)
-	if err != nil {
-		return err
+
+	var (
+		users   map[int64]*service.User
+		apiKeys map[int64]*service.APIKey
+		accounts map[int64]*service.Account
+		groups  map[int64]*service.Group
+		subs    map[int64]*service.UserSubscription
+		mu      sync.Mutex
+		wg      sync.WaitGroup
+		firstErr error
+	)
+	setErr := func(e error) {
+		mu.Lock()
+		if firstErr == nil {
+			firstErr = e
+		}
+		mu.Unlock()
 	}
-	apiKeys, err := r.loadAPIKeys(ctx, ids.apiKeyIDs)
-	if err != nil {
-		return err
-	}
-	accounts, err := r.loadAccounts(ctx, ids.accountIDs)
-	if err != nil {
-		return err
-	}
-	groups, err := r.loadGroups(ctx, ids.groupIDs)
-	if err != nil {
-		return err
-	}
-	subs, err := r.loadSubscriptions(ctx, ids.subscriptionIDs)
-	if err != nil {
-		return err
+
+	wg.Add(5)
+	go func() { defer wg.Done(); v, e := r.loadUsers(ctx, ids.userIDs); if e != nil { setErr(e) } else { users = v } }()
+	go func() { defer wg.Done(); v, e := r.loadAPIKeys(ctx, ids.apiKeyIDs); if e != nil { setErr(e) } else { apiKeys = v } }()
+	go func() { defer wg.Done(); v, e := r.loadAccounts(ctx, ids.accountIDs); if e != nil { setErr(e) } else { accounts = v } }()
+	go func() { defer wg.Done(); v, e := r.loadGroups(ctx, ids.groupIDs); if e != nil { setErr(e) } else { groups = v } }()
+	go func() { defer wg.Done(); v, e := r.loadSubscriptions(ctx, ids.subscriptionIDs); if e != nil { setErr(e) } else { subs = v } }()
+	wg.Wait()
+
+	if firstErr != nil {
+		return firstErr
 	}
 
 	for i := range logs {
