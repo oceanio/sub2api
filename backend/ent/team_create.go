@@ -109,6 +109,20 @@ func (_c *TeamCreate) SetNillableMaxMembers(v *int) *TeamCreate {
 	return _c
 }
 
+// SetSubscriptionsEnabled sets the "subscriptions_enabled" field.
+func (_c *TeamCreate) SetSubscriptionsEnabled(v bool) *TeamCreate {
+	_c.mutation.SetSubscriptionsEnabled(v)
+	return _c
+}
+
+// SetNillableSubscriptionsEnabled sets the "subscriptions_enabled" field if the given value is not nil.
+func (_c *TeamCreate) SetNillableSubscriptionsEnabled(v *bool) *TeamCreate {
+	if v != nil {
+		_c.SetSubscriptionsEnabled(*v)
+	}
+	return _c
+}
+
 // AddMemberIDs adds the "members" edge to the TeamMember entity by IDs.
 func (_c *TeamCreate) AddMemberIDs(ids ...int64) *TeamCreate {
 	_c.mutation.AddMemberIDs(ids...)
@@ -243,6 +257,10 @@ func (_c *TeamCreate) defaults() error {
 		v := team.DefaultMaxMembers
 		_c.mutation.SetMaxMembers(v)
 	}
+	if _, ok := _c.mutation.SubscriptionsEnabled(); !ok {
+		v := team.DefaultSubscriptionsEnabled
+		_c.mutation.SetSubscriptionsEnabled(v)
+	}
 	return nil
 }
 
@@ -267,6 +285,9 @@ func (_c *TeamCreate) check() error {
 	}
 	if _, ok := _c.mutation.MaxMembers(); !ok {
 		return &ValidationError{Name: "max_members", err: errors.New(`ent: missing required field "Team.max_members"`)}
+	}
+	if _, ok := _c.mutation.SubscriptionsEnabled(); !ok {
+		return &ValidationError{Name: "subscriptions_enabled", err: errors.New(`ent: missing required field "Team.subscriptions_enabled"`)}
 	}
 	return nil
 }
@@ -322,6 +343,10 @@ func (_c *TeamCreate) createSpec() (*Team, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.MaxMembers(); ok {
 		_spec.SetField(team.FieldMaxMembers, field.TypeInt, value)
 		_node.MaxMembers = value
+	}
+	if value, ok := _c.mutation.SubscriptionsEnabled(); ok {
+		_spec.SetField(team.FieldSubscriptionsEnabled, field.TypeBool, value)
+		_node.SubscriptionsEnabled = value
 	}
 	if nodes := _c.mutation.MembersIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -551,6 +576,18 @@ func (u *TeamUpsert) AddMaxMembers(v int) *TeamUpsert {
 	return u
 }
 
+// SetSubscriptionsEnabled sets the "subscriptions_enabled" field.
+func (u *TeamUpsert) SetSubscriptionsEnabled(v bool) *TeamUpsert {
+	u.Set(team.FieldSubscriptionsEnabled, v)
+	return u
+}
+
+// UpdateSubscriptionsEnabled sets the "subscriptions_enabled" field to the value that was provided on create.
+func (u *TeamUpsert) UpdateSubscriptionsEnabled() *TeamUpsert {
+	u.SetExcluded(team.FieldSubscriptionsEnabled)
+	return u
+}
+
 // UpdateNewValues updates the mutable fields using the new values that were set on create.
 // Using this option is equivalent to using:
 //
@@ -705,6 +742,20 @@ func (u *TeamUpsertOne) AddMaxMembers(v int) *TeamUpsertOne {
 func (u *TeamUpsertOne) UpdateMaxMembers() *TeamUpsertOne {
 	return u.Update(func(s *TeamUpsert) {
 		s.UpdateMaxMembers()
+	})
+}
+
+// SetSubscriptionsEnabled sets the "subscriptions_enabled" field.
+func (u *TeamUpsertOne) SetSubscriptionsEnabled(v bool) *TeamUpsertOne {
+	return u.Update(func(s *TeamUpsert) {
+		s.SetSubscriptionsEnabled(v)
+	})
+}
+
+// UpdateSubscriptionsEnabled sets the "subscriptions_enabled" field to the value that was provided on create.
+func (u *TeamUpsertOne) UpdateSubscriptionsEnabled() *TeamUpsertOne {
+	return u.Update(func(s *TeamUpsert) {
+		s.UpdateSubscriptionsEnabled()
 	})
 }
 
@@ -1028,6 +1079,20 @@ func (u *TeamUpsertBulk) AddMaxMembers(v int) *TeamUpsertBulk {
 func (u *TeamUpsertBulk) UpdateMaxMembers() *TeamUpsertBulk {
 	return u.Update(func(s *TeamUpsert) {
 		s.UpdateMaxMembers()
+	})
+}
+
+// SetSubscriptionsEnabled sets the "subscriptions_enabled" field.
+func (u *TeamUpsertBulk) SetSubscriptionsEnabled(v bool) *TeamUpsertBulk {
+	return u.Update(func(s *TeamUpsert) {
+		s.SetSubscriptionsEnabled(v)
+	})
+}
+
+// UpdateSubscriptionsEnabled sets the "subscriptions_enabled" field to the value that was provided on create.
+func (u *TeamUpsertBulk) UpdateSubscriptionsEnabled() *TeamUpsertBulk {
+	return u.Update(func(s *TeamUpsert) {
+		s.UpdateSubscriptionsEnabled()
 	})
 }
 

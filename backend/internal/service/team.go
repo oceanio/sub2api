@@ -25,6 +25,7 @@ var (
 	ErrTeamInitialAdminRequired = infraerrors.BadRequest("TEAM_INITIAL_ADMIN_REQUIRED", "initial team_admin is required when creating a team")
 	ErrTeamEmailAlreadyExists   = infraerrors.Conflict("TEAM_EMAIL_ALREADY_EXISTS", "this email already exists on the platform; ask the system administrator to add the user to your team")
 	ErrTeamMemberCapReached     = infraerrors.BadRequest("TEAM_MEMBER_CAP_REACHED", "this team has reached its member cap; ask the system administrator to raise it")
+	ErrTeamSubscriptionsDisabled = infraerrors.Forbidden("TEAM_SUBSCRIPTIONS_DISABLED", "subscriptions feature is disabled for this team")
 )
 
 // ── Balance log type constants ─────────────────────────────────────────────────
@@ -38,13 +39,14 @@ const (
 // ── Domain models ─────────────────────────────────────────────────────────────
 
 type Team struct {
-	ID            int64     `json:"id"`
-	Name          string    `json:"name"`
-	Balance       float64   `json:"balance"`
-	AvailableTags []string  `json:"available_tags"`
-	MaxMembers    int       `json:"max_members"` // 0 = unlimited
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID                   int64     `json:"id"`
+	Name                 string    `json:"name"`
+	Balance              float64   `json:"balance"`
+	AvailableTags        []string  `json:"available_tags"`
+	MaxMembers           int       `json:"max_members"` // 0 = unlimited
+	SubscriptionsEnabled bool      `json:"subscriptions_enabled"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
 
 	// Computed: populated by List() for admin display, zero otherwise.
 	MemberCount int64 `json:"member_count"`
@@ -113,7 +115,7 @@ type TeamRepository interface {
 	// CreateWithInitialState atomically writes teams + team_admins
 	// (and optionally team_members if alsoAddAsMember is true, and a recharge
 	// balance log if initialBalance > 0). Single ent transaction.
-	CreateWithInitialState(ctx context.Context, team *Team, initialAdminUserID int64, initialBalance float64, maxMembers int, alsoAddAsMember bool, operatorID int64) error
+	CreateWithInitialState(ctx context.Context, team *Team, initialAdminUserID int64, initialBalance float64, maxMembers int, alsoAddAsMember bool, subscriptionsEnabled *bool, operatorID int64) error
 	GetByID(ctx context.Context, id int64) (*Team, error)
 	// ListByIDs batch-loads teams with populated MemberCount. Used for sidebar
 	// and selector loads to avoid the GetTeamsForAdmin N+1 pattern.
@@ -174,17 +176,19 @@ type TeamBalanceLogRepository interface {
 // ── Request/response types ─────────────────────────────────────────────────────
 
 type CreateTeamRequest struct {
-	Name               string
-	InitialAdminUserID int64   // required
-	InitialBalance     float64 // optional (0 = no recharge log)
-	MaxMembers         int     // optional (0 = unlimited)
-	AlsoAddAsMember    bool    // optional: also add the initial admin as paying member
-	OperatorID         int64   // sys admin user id
+	Name                 string
+	InitialAdminUserID   int64   // required
+	InitialBalance       float64 // optional (0 = no recharge log)
+	MaxMembers           int     // optional (0 = unlimited)
+	AlsoAddAsMember      bool    // optional: also add the initial admin as paying member
+	SubscriptionsEnabled *bool   // optional; nil = use ent default (true)
+	OperatorID           int64   // sys admin user id
 }
 
 type UpdateTeamRequest struct {
-	Name       string
-	MaxMembers *int // sys admin only; pointer so absence means "leave unchanged"
+	Name                 string
+	MaxMembers           *int  // sys admin only; pointer so absence means "leave unchanged"
+	SubscriptionsEnabled *bool // sys admin only; pointer so absence means "leave unchanged"
 }
 
 type RechargeTeamRequest struct {

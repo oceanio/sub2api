@@ -1612,6 +1612,10 @@ func init() {
 	teamDescMaxMembers := teamFields[3].Descriptor()
 	// team.DefaultMaxMembers holds the default value on creation for the max_members field.
 	team.DefaultMaxMembers = teamDescMaxMembers.Default.(int)
+	// teamDescSubscriptionsEnabled is the schema descriptor for subscriptions_enabled field.
+	teamDescSubscriptionsEnabled := teamFields[4].Descriptor()
+	// team.DefaultSubscriptionsEnabled holds the default value on creation for the subscriptions_enabled field.
+	team.DefaultSubscriptionsEnabled = teamDescSubscriptionsEnabled.Default.(bool)
 	teamadminMixin := schema.TeamAdmin{}.Mixin()
 	teamadminMixinHooks1 := teamadminMixin[1].Hooks()
 	teamadmin.Hooks[0] = teamadminMixinHooks1[0]

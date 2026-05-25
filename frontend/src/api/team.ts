@@ -20,6 +20,7 @@ export interface Team {
   balance: number
   available_tags?: string[]
   max_members: number // 0 = unlimited
+  subscriptions_enabled?: boolean
   created_at: string
   updated_at: string
   member_count?: number
@@ -524,12 +525,13 @@ export async function adminCreateTeam(payload: {
   initial_balance?: number
   max_members?: number
   also_add_as_member?: boolean
+  subscriptions_enabled?: boolean
 }): Promise<Team> {
   const { data } = await apiClient.post<Team>('/admin/teams', payload)
   return data
 }
 
-export async function adminUpdateTeam(id: number, payload: { name: string; max_members?: number }): Promise<Team> {
+export async function adminUpdateTeam(id: number, payload: { name: string; max_members?: number; subscriptions_enabled?: boolean }): Promise<Team> {
   const { data } = await apiClient.put<Team>(`/admin/teams/${id}`, payload)
   return data
 }

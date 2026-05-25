@@ -114,6 +114,8 @@ export const teamMessages = {
     memberCount: 'Members',
     maxMembers: 'Max members (0 = unlimited)',
     maxMembersHint: 'Only sys admin can modify. When set, team admins cannot add members beyond this cap.',
+    subscriptionsEnabled: 'Subscriptions enabled',
+    subscriptionsEnabledHint: 'When off, team admins cannot see the Subscriptions tab nor call subscription endpoints. Sys admin is unaffected.',
     recharge: 'Recharge',
     rechargeAmount: 'Amount',
     rechargeNote: 'Note',

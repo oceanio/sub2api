@@ -71,12 +71,18 @@ const team = ref<Team | null>(null)
 
 const tabs = computed(() => {
   const base = `${basePath.value}/${props.teamId}`
-  return [
+  // Hide the Subscriptions tab for team_admin when the team has the
+  // subscriptions feature switched off by sys admin. Strict `=== false` so
+  // that older API responses missing the field (or pre-load) keep the tab
+  // visible — matches the backend default of TRUE.
+  const subsHidden = props.source === 'team_admin' && team.value?.subscriptions_enabled === false
+  const list = [
     { label: t('team.nav.members'), path: `${base}/members` },
     { label: t('team.nav.usage'), path: `${base}/usage` },
-    { label: t('team.nav.subscriptions'), path: `${base}/subscriptions` },
-    { label: t('team.nav.balance'), path: `${base}/balance` },
   ]
+  if (!subsHidden) list.push({ label: t('team.nav.subscriptions'), path: `${base}/subscriptions` })
+  list.push({ label: t('team.nav.balance'), path: `${base}/balance` })
+  return list
 })
 
 async function loadTeam(force = false) {

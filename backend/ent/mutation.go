@@ -33433,38 +33433,39 @@ func (m *TLSFingerprintProfileMutation) ResetEdge(name string) error {
 // TeamMutation represents an operation that mutates the Team nodes in the graph.
 type TeamMutation struct {
 	config
-	op                   Op
-	typ                  string
-	id                   *int64
-	created_at           *time.Time
-	updated_at           *time.Time
-	deleted_at           *time.Time
-	name                 *string
-	balance              *float64
-	addbalance           *float64
-	available_tags       *[]string
-	appendavailable_tags []string
-	max_members          *int
-	addmax_members       *int
-	clearedFields        map[string]struct{}
-	members              map[int64]struct{}
-	removedmembers       map[int64]struct{}
-	clearedmembers       bool
-	admins               map[int64]struct{}
-	removedadmins        map[int64]struct{}
-	clearedadmins        bool
-	balance_logs         map[int64]struct{}
-	removedbalance_logs  map[int64]struct{}
-	clearedbalance_logs  bool
-	api_keys             map[int64]struct{}
-	removedapi_keys      map[int64]struct{}
-	clearedapi_keys      bool
-	subscriptions        map[int64]struct{}
-	removedsubscriptions map[int64]struct{}
-	clearedsubscriptions bool
-	done                 bool
-	oldValue             func(context.Context) (*Team, error)
-	predicates           []predicate.Team
+	op                    Op
+	typ                   string
+	id                    *int64
+	created_at            *time.Time
+	updated_at            *time.Time
+	deleted_at            *time.Time
+	name                  *string
+	balance               *float64
+	addbalance            *float64
+	available_tags        *[]string
+	appendavailable_tags  []string
+	max_members           *int
+	addmax_members        *int
+	subscriptions_enabled *bool
+	clearedFields         map[string]struct{}
+	members               map[int64]struct{}
+	removedmembers        map[int64]struct{}
+	clearedmembers        bool
+	admins                map[int64]struct{}
+	removedadmins         map[int64]struct{}
+	clearedadmins         bool
+	balance_logs          map[int64]struct{}
+	removedbalance_logs   map[int64]struct{}
+	clearedbalance_logs   bool
+	api_keys              map[int64]struct{}
+	removedapi_keys       map[int64]struct{}
+	clearedapi_keys       bool
+	subscriptions         map[int64]struct{}
+	removedsubscriptions  map[int64]struct{}
+	clearedsubscriptions  bool
+	done                  bool
+	oldValue              func(context.Context) (*Team, error)
+	predicates            []predicate.Team
 }
 
 var _ ent.Mutation = (*TeamMutation)(nil)
@@ -33899,6 +33900,42 @@ func (m *TeamMutation) ResetMaxMembers() {
 	m.addmax_members = nil
 }
 
+// SetSubscriptionsEnabled sets the "subscriptions_enabled" field.
+func (m *TeamMutation) SetSubscriptionsEnabled(b bool) {
+	m.subscriptions_enabled = &b
+}
+
+// SubscriptionsEnabled returns the value of the "subscriptions_enabled" field in the mutation.
+func (m *TeamMutation) SubscriptionsEnabled() (r bool, exists bool) {
+	v := m.subscriptions_enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSubscriptionsEnabled returns the old "subscriptions_enabled" field's value of the Team entity.
+// If the Team object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TeamMutation) OldSubscriptionsEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSubscriptionsEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSubscriptionsEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSubscriptionsEnabled: %w", err)
+	}
+	return oldValue.SubscriptionsEnabled, nil
+}
+
+// ResetSubscriptionsEnabled resets all changes to the "subscriptions_enabled" field.
+func (m *TeamMutation) ResetSubscriptionsEnabled() {
+	m.subscriptions_enabled = nil
+}
+
 // AddMemberIDs adds the "members" edge to the TeamMember entity by ids.
 func (m *TeamMutation) AddMemberIDs(ids ...int64) {
 	if m.members == nil {
@@ -34203,7 +34240,7 @@ func (m *TeamMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *TeamMutation) Fields() []string {
-	fields := make([]string, 0, 7)
+	fields := make([]string, 0, 8)
 	if m.created_at != nil {
 		fields = append(fields, team.FieldCreatedAt)
 	}
@@ -34224,6 +34261,9 @@ func (m *TeamMutation) Fields() []string {
 	}
 	if m.max_members != nil {
 		fields = append(fields, team.FieldMaxMembers)
+	}
+	if m.subscriptions_enabled != nil {
+		fields = append(fields, team.FieldSubscriptionsEnabled)
 	}
 	return fields
 }
@@ -34247,6 +34287,8 @@ func (m *TeamMutation) Field(name string) (ent.Value, bool) {
 		return m.AvailableTags()
 	case team.FieldMaxMembers:
 		return m.MaxMembers()
+	case team.FieldSubscriptionsEnabled:
+		return m.SubscriptionsEnabled()
 	}
 	return nil, false
 }
@@ -34270,6 +34312,8 @@ func (m *TeamMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldAvailableTags(ctx)
 	case team.FieldMaxMembers:
 		return m.OldMaxMembers(ctx)
+	case team.FieldSubscriptionsEnabled:
+		return m.OldSubscriptionsEnabled(ctx)
 	}
 	return nil, fmt.Errorf("unknown Team field %s", name)
 }
@@ -34327,6 +34371,13 @@ func (m *TeamMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetMaxMembers(v)
+		return nil
+	case team.FieldSubscriptionsEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSubscriptionsEnabled(v)
 		return nil
 	}
 	return fmt.Errorf("unknown Team field %s", name)
@@ -34439,6 +34490,9 @@ func (m *TeamMutation) ResetField(name string) error {
 		return nil
 	case team.FieldMaxMembers:
 		m.ResetMaxMembers()
+		return nil
+	case team.FieldSubscriptionsEnabled:
+		m.ResetSubscriptionsEnabled()
 		return nil
 	}
 	return fmt.Errorf("unknown Team field %s", name)

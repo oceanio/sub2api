@@ -24,16 +24,18 @@ func NewAdminTeamHandler(teamService *service.TeamService) *AdminTeamHandler {
 // ── DTOs ──────────────────────────────────────────────────────────────────────
 
 type createTeamRequest struct {
-	Name               string  `json:"name" binding:"required"`
-	InitialAdminUserID int64   `json:"initial_admin_user_id" binding:"required"`
-	InitialBalance     float64 `json:"initial_balance" binding:"gte=0"`
-	MaxMembers         int     `json:"max_members" binding:"gte=0"`
-	AlsoAddAsMember    bool    `json:"also_add_as_member"`
+	Name                 string  `json:"name" binding:"required"`
+	InitialAdminUserID   int64   `json:"initial_admin_user_id" binding:"required"`
+	InitialBalance       float64 `json:"initial_balance" binding:"gte=0"`
+	MaxMembers           int     `json:"max_members" binding:"gte=0"`
+	AlsoAddAsMember      bool    `json:"also_add_as_member"`
+	SubscriptionsEnabled *bool   `json:"subscriptions_enabled"`
 }
 
 type updateTeamRequest struct {
-	Name       string `json:"name" binding:"required"`
-	MaxMembers *int   `json:"max_members" binding:"omitempty,gte=0"`
+	Name                 string `json:"name" binding:"required"`
+	MaxMembers           *int   `json:"max_members" binding:"omitempty,gte=0"`
+	SubscriptionsEnabled *bool  `json:"subscriptions_enabled"`
 }
 
 type rechargeTeamRequest struct {
@@ -69,12 +71,13 @@ func (h *AdminTeamHandler) CreateTeam(c *gin.Context) {
 	}
 	subject, _ := middleware2.GetAuthSubjectFromContext(c)
 	team, err := h.teamService.CreateTeam(c.Request.Context(), service.CreateTeamRequest{
-		Name:               req.Name,
-		InitialAdminUserID: req.InitialAdminUserID,
-		InitialBalance:     req.InitialBalance,
-		MaxMembers:         req.MaxMembers,
-		AlsoAddAsMember:    req.AlsoAddAsMember,
-		OperatorID:         subject.UserID,
+		Name:                 req.Name,
+		InitialAdminUserID:   req.InitialAdminUserID,
+		InitialBalance:       req.InitialBalance,
+		MaxMembers:           req.MaxMembers,
+		AlsoAddAsMember:      req.AlsoAddAsMember,
+		SubscriptionsEnabled: req.SubscriptionsEnabled,
+		OperatorID:           subject.UserID,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -95,7 +98,11 @@ func (h *AdminTeamHandler) UpdateTeam(c *gin.Context) {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	team, err := h.teamService.UpdateTeam(c.Request.Context(), id, service.UpdateTeamRequest{Name: req.Name, MaxMembers: req.MaxMembers})
+	team, err := h.teamService.UpdateTeam(c.Request.Context(), id, service.UpdateTeamRequest{
+		Name:                 req.Name,
+		MaxMembers:           req.MaxMembers,
+		SubscriptionsEnabled: req.SubscriptionsEnabled,
+	})
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

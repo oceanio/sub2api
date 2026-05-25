@@ -134,6 +134,20 @@ func (_u *TeamUpdate) AddMaxMembers(v int) *TeamUpdate {
 	return _u
 }
 
+// SetSubscriptionsEnabled sets the "subscriptions_enabled" field.
+func (_u *TeamUpdate) SetSubscriptionsEnabled(v bool) *TeamUpdate {
+	_u.mutation.SetSubscriptionsEnabled(v)
+	return _u
+}
+
+// SetNillableSubscriptionsEnabled sets the "subscriptions_enabled" field if the given value is not nil.
+func (_u *TeamUpdate) SetNillableSubscriptionsEnabled(v *bool) *TeamUpdate {
+	if v != nil {
+		_u.SetSubscriptionsEnabled(*v)
+	}
+	return _u
+}
+
 // AddMemberIDs adds the "members" edge to the TeamMember entity by IDs.
 func (_u *TeamUpdate) AddMemberIDs(ids ...int64) *TeamUpdate {
 	_u.mutation.AddMemberIDs(ids...)
@@ -417,6 +431,9 @@ func (_u *TeamUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.AddedMaxMembers(); ok {
 		_spec.AddField(team.FieldMaxMembers, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.SubscriptionsEnabled(); ok {
+		_spec.SetField(team.FieldSubscriptionsEnabled, field.TypeBool, value)
 	}
 	if _u.mutation.MembersCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -763,6 +780,20 @@ func (_u *TeamUpdateOne) AddMaxMembers(v int) *TeamUpdateOne {
 	return _u
 }
 
+// SetSubscriptionsEnabled sets the "subscriptions_enabled" field.
+func (_u *TeamUpdateOne) SetSubscriptionsEnabled(v bool) *TeamUpdateOne {
+	_u.mutation.SetSubscriptionsEnabled(v)
+	return _u
+}
+
+// SetNillableSubscriptionsEnabled sets the "subscriptions_enabled" field if the given value is not nil.
+func (_u *TeamUpdateOne) SetNillableSubscriptionsEnabled(v *bool) *TeamUpdateOne {
+	if v != nil {
+		_u.SetSubscriptionsEnabled(*v)
+	}
+	return _u
+}
+
 // AddMemberIDs adds the "members" edge to the TeamMember entity by IDs.
 func (_u *TeamUpdateOne) AddMemberIDs(ids ...int64) *TeamUpdateOne {
 	_u.mutation.AddMemberIDs(ids...)
@@ -1076,6 +1107,9 @@ func (_u *TeamUpdateOne) sqlSave(ctx context.Context) (_node *Team, err error) {
 	}
 	if value, ok := _u.mutation.AddedMaxMembers(); ok {
 		_spec.AddField(team.FieldMaxMembers, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.SubscriptionsEnabled(); ok {
+		_spec.SetField(team.FieldSubscriptionsEnabled, field.TypeBool, value)
 	}
 	if _u.mutation.MembersCleared() {
 		edge := &sqlgraph.EdgeSpec{

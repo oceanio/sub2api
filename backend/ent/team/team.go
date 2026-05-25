@@ -29,6 +29,8 @@ const (
 	FieldAvailableTags = "available_tags"
 	// FieldMaxMembers holds the string denoting the max_members field in the database.
 	FieldMaxMembers = "max_members"
+	// FieldSubscriptionsEnabled holds the string denoting the subscriptions_enabled field in the database.
+	FieldSubscriptionsEnabled = "subscriptions_enabled"
 	// EdgeMembers holds the string denoting the members edge name in mutations.
 	EdgeMembers = "members"
 	// EdgeAdmins holds the string denoting the admins edge name in mutations.
@@ -88,6 +90,7 @@ var Columns = []string{
 	FieldBalance,
 	FieldAvailableTags,
 	FieldMaxMembers,
+	FieldSubscriptionsEnabled,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -120,6 +123,8 @@ var (
 	DefaultBalance float64
 	// DefaultMaxMembers holds the default value on creation for the "max_members" field.
 	DefaultMaxMembers int
+	// DefaultSubscriptionsEnabled holds the default value on creation for the "subscriptions_enabled" field.
+	DefaultSubscriptionsEnabled bool
 )
 
 // OrderOption defines the ordering options for the Team queries.
@@ -158,6 +163,11 @@ func ByBalance(opts ...sql.OrderTermOption) OrderOption {
 // ByMaxMembers orders the results by the max_members field.
 func ByMaxMembers(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldMaxMembers, opts...).ToFunc()
+}
+
+// BySubscriptionsEnabled orders the results by the subscriptions_enabled field.
+func BySubscriptionsEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSubscriptionsEnabled, opts...).ToFunc()
 }
 
 // ByMembersCount orders the results by members count.

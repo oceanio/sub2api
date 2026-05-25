@@ -32,6 +32,8 @@ type Team struct {
 	AvailableTags []string `json:"available_tags,omitempty"`
 	// Cap on active paying members (0 = unlimited). Only sys admin can modify.
 	MaxMembers int `json:"max_members,omitempty"`
+	// When false, team_admin cannot see the Subscriptions tab nor call subscription endpoints. Sys admin always can.
+	SubscriptionsEnabled bool `json:"subscriptions_enabled,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the TeamQuery when eager-loading is set.
 	Edges        TeamEdges `json:"edges"`
@@ -107,6 +109,8 @@ func (*Team) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case team.FieldAvailableTags:
 			values[i] = new([]byte)
+		case team.FieldSubscriptionsEnabled:
+			values[i] = new(sql.NullBool)
 		case team.FieldBalance:
 			values[i] = new(sql.NullFloat64)
 		case team.FieldID, team.FieldMaxMembers:
@@ -180,6 +184,12 @@ func (_m *Team) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field max_members", values[i])
 			} else if value.Valid {
 				_m.MaxMembers = int(value.Int64)
+			}
+		case team.FieldSubscriptionsEnabled:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field subscriptions_enabled", values[i])
+			} else if value.Valid {
+				_m.SubscriptionsEnabled = value.Bool
 			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
@@ -264,6 +274,9 @@ func (_m *Team) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("max_members=")
 	builder.WriteString(fmt.Sprintf("%v", _m.MaxMembers))
+	builder.WriteString(", ")
+	builder.WriteString("subscriptions_enabled=")
+	builder.WriteString(fmt.Sprintf("%v", _m.SubscriptionsEnabled))
 	builder.WriteByte(')')
 	return builder.String()
 }

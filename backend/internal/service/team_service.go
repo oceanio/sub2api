@@ -175,7 +175,7 @@ func (s *TeamService) CreateTeam(ctx context.Context, req CreateTeamRequest) (*T
 		return nil, fmt.Errorf("max_members must be non-negative")
 	}
 	team := &Team{Name: req.Name}
-	if err := s.teamRepo.CreateWithInitialState(ctx, team, req.InitialAdminUserID, req.InitialBalance, req.MaxMembers, req.AlsoAddAsMember, req.OperatorID); err != nil {
+	if err := s.teamRepo.CreateWithInitialState(ctx, team, req.InitialAdminUserID, req.InitialBalance, req.MaxMembers, req.AlsoAddAsMember, req.SubscriptionsEnabled, req.OperatorID); err != nil {
 		return nil, fmt.Errorf("create team: %w", err)
 	}
 	return team, nil
@@ -199,6 +199,9 @@ func (s *TeamService) UpdateTeam(ctx context.Context, id int64, req UpdateTeamRe
 			return nil, fmt.Errorf("max_members must be >= 0")
 		}
 		existing.MaxMembers = *req.MaxMembers
+	}
+	if req.SubscriptionsEnabled != nil {
+		existing.SubscriptionsEnabled = *req.SubscriptionsEnabled
 	}
 	if err := s.teamRepo.Update(ctx, existing); err != nil {
 		return nil, fmt.Errorf("update team: %w", err)
@@ -762,6 +765,9 @@ func (s *TeamService) PurchaseSubscriptionsForMembers(
 	if err := s.requireTeamAdmin(ctx, teamID, operatorID); err != nil {
 		return nil, err
 	}
+	if err := s.requireSubscriptionsEnabled(ctx, teamID); err != nil {
+		return nil, err
+	}
 	if !forAll && len(requestedUserIDs) == 0 {
 		return nil, fmt.Errorf("target user ids required when all_members=false")
 	}
@@ -969,6 +975,9 @@ func (s *TeamService) ListTeamSubscriptions(ctx context.Context, teamID, operato
 	if err := s.requireTeamAdmin(ctx, teamID, operatorID); err != nil {
 		return nil, nil, err
 	}
+	if err := s.requireSubscriptionsEnabled(ctx, teamID); err != nil {
+		return nil, nil, err
+	}
 	subs, result, err := s.userSubRepo.ListByTeamID(ctx, teamID, filters, params)
 	if err != nil {
 		return nil, nil, fmt.Errorf("list team subscriptions: %w", err)
@@ -979,6 +988,9 @@ func (s *TeamService) ListTeamSubscriptions(ctx context.Context, teamID, operato
 // ListSubscriptionPlans returns all for-sale plans.
 func (s *TeamService) ListSubscriptionPlans(ctx context.Context, teamID, operatorID int64) ([]*dbent.SubscriptionPlan, error) {
 	if err := s.requireTeamAdmin(ctx, teamID, operatorID); err != nil {
+		return nil, err
+	}
+	if err := s.requireSubscriptionsEnabled(ctx, teamID); err != nil {
 		return nil, err
 	}
 	if s.paymentConfigService == nil {
@@ -1024,6 +1036,9 @@ func (s *TeamService) ListMemberSubscriptions(ctx context.Context, teamID, membe
 	if err := s.requireTeamAdmin(ctx, teamID, operatorID); err != nil {
 		return nil, err
 	}
+	if err := s.requireSubscriptionsEnabled(ctx, teamID); err != nil {
+		return nil, err
+	}
 	member, err := s.memberRepo.GetByID(ctx, memberID)
 	if err != nil {
 		return nil, err
@@ -1053,6 +1068,24 @@ func (s *TeamService) requireTeamAdmin(ctx context.Context, teamID, userID int64
 	}
 	if !ok {
 		return ErrTeamAdminRequired
+	}
+	return nil
+}
+
+// requireSubscriptionsEnabled rejects team_admin callers when the team's
+// subscriptions feature is switched off. Sys-admin callers bypass so they can
+// still operate on already-purchased subscriptions after the feature has been
+// disabled for a team.
+func (s *TeamService) requireSubscriptionsEnabled(ctx context.Context, teamID int64) error {
+	if IsSysAdminCaller(ctx) {
+		return nil
+	}
+	t, err := s.teamRepo.GetByID(ctx, teamID)
+	if err != nil {
+		return err
+	}
+	if !t.SubscriptionsEnabled {
+		return ErrTeamSubscriptionsDisabled
 	}
 	return nil
 }

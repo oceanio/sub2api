@@ -47,7 +47,7 @@ func (r *teamRepository) Create(ctx context.Context, t *service.Team) error {
 
 // CreateWithInitialState atomically writes team + initial team_admin + (optionally)
 // a paying-member record and/or a recharge balance log in a single ent transaction.
-func (r *teamRepository) CreateWithInitialState(ctx context.Context, t *service.Team, initialAdminUserID int64, initialBalance float64, maxMembers int, alsoAddAsMember bool, operatorID int64) error {
+func (r *teamRepository) CreateWithInitialState(ctx context.Context, t *service.Team, initialAdminUserID int64, initialBalance float64, maxMembers int, alsoAddAsMember bool, subscriptionsEnabled *bool, operatorID int64) error {
 	tx, err := r.client.Tx(ctx)
 	if err != nil {
 		return err
@@ -58,6 +58,7 @@ func (r *teamRepository) CreateWithInitialState(ctx context.Context, t *service.
 		SetName(t.Name).
 		SetBalance(initialBalance).
 		SetMaxMembers(maxMembers).
+		SetNillableSubscriptionsEnabled(subscriptionsEnabled).
 		Save(ctx)
 	if err != nil {
 		return err
@@ -101,6 +102,7 @@ func (r *teamRepository) CreateWithInitialState(ctx context.Context, t *service.
 	t.ID = created.ID
 	t.Balance = initialBalance
 	t.MaxMembers = maxMembers
+	t.SubscriptionsEnabled = created.SubscriptionsEnabled
 	t.CreatedAt = created.CreatedAt
 	t.UpdatedAt = created.UpdatedAt
 	return nil
@@ -174,6 +176,7 @@ func (r *teamRepository) Update(ctx context.Context, t *service.Team) error {
 	// MaxMembers is part of the same admin-side update form; setting it to its
 	// existing value is harmless and lets us avoid a second Update method.
 	u = u.SetMaxMembers(t.MaxMembers)
+	u = u.SetSubscriptionsEnabled(t.SubscriptionsEnabled)
 	_, err := u.Save(ctx)
 	return err
 }
@@ -273,13 +276,14 @@ func teamEntityToService(m *dbent.Team) *service.Team {
 		return nil
 	}
 	return &service.Team{
-		ID:            m.ID,
-		Name:          m.Name,
-		Balance:       m.Balance,
-		AvailableTags: m.AvailableTags,
-		MaxMembers:    m.MaxMembers,
-		CreatedAt:     m.CreatedAt,
-		UpdatedAt:     m.UpdatedAt,
+		ID:                   m.ID,
+		Name:                 m.Name,
+		Balance:              m.Balance,
+		AvailableTags:        m.AvailableTags,
+		MaxMembers:           m.MaxMembers,
+		SubscriptionsEnabled: m.SubscriptionsEnabled,
+		CreatedAt:            m.CreatedAt,
+		UpdatedAt:            m.UpdatedAt,
 	}
 }
 

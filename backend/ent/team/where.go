@@ -85,6 +85,11 @@ func MaxMembers(v int) predicate.Team {
 	return predicate.Team(sql.FieldEQ(FieldMaxMembers, v))
 }
 
+// SubscriptionsEnabled applies equality check predicate on the "subscriptions_enabled" field. It's identical to SubscriptionsEnabledEQ.
+func SubscriptionsEnabled(v bool) predicate.Team {
+	return predicate.Team(sql.FieldEQ(FieldSubscriptionsEnabled, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.Team {
 	return predicate.Team(sql.FieldEQ(FieldCreatedAt, v))
@@ -368,6 +373,16 @@ func MaxMembersLT(v int) predicate.Team {
 // MaxMembersLTE applies the LTE predicate on the "max_members" field.
 func MaxMembersLTE(v int) predicate.Team {
 	return predicate.Team(sql.FieldLTE(FieldMaxMembers, v))
+}
+
+// SubscriptionsEnabledEQ applies the EQ predicate on the "subscriptions_enabled" field.
+func SubscriptionsEnabledEQ(v bool) predicate.Team {
+	return predicate.Team(sql.FieldEQ(FieldSubscriptionsEnabled, v))
+}
+
+// SubscriptionsEnabledNEQ applies the NEQ predicate on the "subscriptions_enabled" field.
+func SubscriptionsEnabledNEQ(v bool) predicate.Team {
+	return predicate.Team(sql.FieldNEQ(FieldSubscriptionsEnabled, v))
 }
 
 // HasMembers applies the HasEdge predicate on the "members" edge.

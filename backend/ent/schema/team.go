@@ -45,6 +45,9 @@ func (Team) Fields() []ent.Field {
 		field.Int("max_members").
 			Default(0).
 			Comment("Cap on active paying members (0 = unlimited). Only sys admin can modify."),
+		field.Bool("subscriptions_enabled").
+			Default(true).
+			Comment("When false, team_admin cannot see the Subscriptions tab nor call subscription endpoints. Sys admin always can."),
 	}
 }
 

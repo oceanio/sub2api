@@ -175,6 +175,13 @@
           </label>
           <p class="mt-1 text-xs text-gray-500">{{ t('team.adminTeams.alsoAddAsMemberHint') }}</p>
         </div>
+        <div>
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" v-model="createForm.subscriptionsEnabled" />
+            {{ t('team.adminTeams.subscriptionsEnabled') }}
+          </label>
+          <p class="mt-1 text-xs text-gray-500">{{ t('team.adminTeams.subscriptionsEnabledHint') }}</p>
+        </div>
       </form>
       <template #footer>
         <button class="btn btn-secondary" @click="showCreateDialog = false">{{ t('common.cancel') }}</button>
@@ -195,6 +202,13 @@
           <label class="input-label">{{ t('team.adminTeams.maxMembers') }}</label>
           <input v-model.number="editForm.maxMembers" type="number" min="0" class="input" />
           <p class="mt-1 text-xs text-gray-500">{{ t('team.adminTeams.maxMembersHint') }}</p>
+        </div>
+        <div>
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" v-model="editForm.subscriptionsEnabled" />
+            {{ t('team.adminTeams.subscriptionsEnabled') }}
+          </label>
+          <p class="mt-1 text-xs text-gray-500">{{ t('team.adminTeams.subscriptionsEnabledHint') }}</p>
         </div>
       </div>
       <template #footer>
@@ -302,7 +316,7 @@ const showBalanceDialog = ref(false)
 const showDeleteConfirm = ref(false)
 const saving = ref(false)
 const editTarget = ref<Team | null>(null)
-const editForm = ref({ name: '', maxMembers: 0 })
+const editForm = ref({ name: '', maxMembers: 0, subscriptionsEnabled: true })
 const balanceTarget = ref<Team | null>(null)
 const balanceForm = ref<{ amount: number; note: string; operation: 'add' | 'subtract' }>({ amount: 0, note: '', operation: 'add' })
 const deleteTarget = ref<Team | null>(null)
@@ -318,6 +332,7 @@ const createForm = ref({
   initialBalance: 0,
   maxMembers: 200,
   alsoAddAsMember: false,
+  subscriptionsEnabled: true,
 })
 const adminCandidates = ref<Array<{ id: number; email: string }>>([])
 let adminSearchTimer: any = null
@@ -380,10 +395,11 @@ async function handleCreate() {
       initial_balance: createForm.value.initialBalance > 0 ? createForm.value.initialBalance : 0,
       max_members: createForm.value.maxMembers > 0 ? createForm.value.maxMembers : 0,
       also_add_as_member: createForm.value.alsoAddAsMember,
+      subscriptions_enabled: createForm.value.subscriptionsEnabled,
     })
     appStore.showSuccess(t('team.adminTeams.teamCreated'))
     showCreateDialog.value = false
-    createForm.value = { name: '', adminSearch: '', adminUserId: 0, adminEmail: '', initialBalance: 0, maxMembers: 200, alsoAddAsMember: false }
+    createForm.value = { name: '', adminSearch: '', adminUserId: 0, adminEmail: '', initialBalance: 0, maxMembers: 200, alsoAddAsMember: false, subscriptionsEnabled: true }
     adminCandidates.value = []
     load()
   } catch (e: any) {
@@ -393,7 +409,11 @@ async function handleCreate() {
 
 function openEdit(team: Team) {
   editTarget.value = team
-  editForm.value = { name: team.name, maxMembers: team.max_members ?? 0 }
+  editForm.value = {
+    name: team.name,
+    maxMembers: team.max_members ?? 0,
+    subscriptionsEnabled: team.subscriptions_enabled !== false,
+  }
   showEditDialog.value = true
 }
 
@@ -401,7 +421,11 @@ async function handleEdit() {
   if (!editTarget.value) return
   saving.value = true
   try {
-    await teamAPI.adminUpdateTeam(editTarget.value.id, { name: editForm.value.name, max_members: editForm.value.maxMembers })
+    await teamAPI.adminUpdateTeam(editTarget.value.id, {
+      name: editForm.value.name,
+      max_members: editForm.value.maxMembers,
+      subscriptions_enabled: editForm.value.subscriptionsEnabled,
+    })
     appStore.showSuccess(t('common.saved'))
     showEditDialog.value = false
     teamStore.invalidateAdminTeam(editTarget.value.id)

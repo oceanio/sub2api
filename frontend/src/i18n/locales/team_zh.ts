@@ -114,6 +114,8 @@ export const teamMessages = {
     memberCount: '成员数',
     maxMembers: '最大成员数（0 = 不限）',
     maxMembersHint: '只有 system admin 可修改。设置后，团队管理员添加成员时受此上限限制。',
+    subscriptionsEnabled: '开放订阅功能',
+    subscriptionsEnabledHint: '关闭后，团队管理员将看不到「订阅管理」tab 且无法调用相关接口；系统管理员不受影响。',
     recharge: '充值',
     rechargeAmount: '充值金额',
     rechargeNote: '备注',

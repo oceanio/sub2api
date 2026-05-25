@@ -1287,6 +1287,7 @@ var (
 		{Name: "balance", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
 		{Name: "available_tags", Type: field.TypeJSON, Nullable: true},
 		{Name: "max_members", Type: field.TypeInt, Default: 0},
+		{Name: "subscriptions_enabled", Type: field.TypeBool, Default: true},
 	}
 	// TeamsTable holds the schema information for the "teams" table.
 	TeamsTable = &schema.Table{
