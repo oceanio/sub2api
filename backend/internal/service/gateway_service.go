@@ -8296,6 +8296,10 @@ func finalizePostUsageBilling(p *postUsageBillingParams, deps *billingDeps, resu
 		if p.Cost.ActualCost > 0 && p.User != nil && p.APIKey != nil && p.APIKey.GroupID != nil {
 			deps.billingCacheService.QueueUpdateSubscriptionUsage(p.User.ID, *p.APIKey.GroupID, p.Cost.ActualCost)
 		}
+	} else if p.APIKey != nil && p.APIKey.TeamID != nil {
+		// Team key: DB write debited teams.balance (deductUsageBillingTeamBalance).
+		// User balance cache is irrelevant — skip QueueDeductBalance to avoid
+		// silently corrupting the user balance Redis snapshot for team members.
 	} else if p.Cost.ActualCost > 0 && p.User != nil {
 		deps.billingCacheService.QueueDeductBalance(p.User.ID, p.Cost.ActualCost)
 	}
@@ -8328,6 +8332,13 @@ func notifyBalanceLow(p *postUsageBillingParams, deps *billingDeps, result *Usag
 			"user_nil", p.User == nil,
 			"service_nil", deps.balanceNotifyService == nil,
 		)
+		return
+	}
+	// Team key: deduction was from team.balance, not user.balance — the user's
+	// personal-balance threshold notification is meaningless here (and would
+	// spam every team member whose personal balance happens to be near 0).
+	if p.APIKey != nil && p.APIKey.TeamID != nil {
+		slog.Debug("notifyBalanceLow: skipped (team key)", "team_id", *p.APIKey.TeamID)
 		return
 	}
 
