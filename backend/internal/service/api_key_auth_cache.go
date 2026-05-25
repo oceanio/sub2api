@@ -33,6 +33,13 @@ type APIKeyAuthSnapshot struct {
 	TeamMemberID *int64  `json:"team_member_id,omitempty"` // team_members.id for sub_quota tracking
 	SubQuota     float64 `json:"sub_quota,omitempty"`      // per-member spend cap (0 = unlimited)
 	SubQuotaUsed float64 `json:"sub_quota_used,omitempty"` // current accumulated spend
+
+	// TeamGroupRPMOverride 该 (team, group) 对应的 RPM 覆盖值（仅当 TeamID 非空且
+	// 有 group 时填充）。语义同 User.UserGroupRPMOverride：nil = 无 override；
+	// 0 = 该团队成员在该分组免 RPM 检查；>0 = 上限值。
+	// 由 admin sys 编辑 team_group_rate_multipliers 触发整团队 auth cache 失效，
+	// 故无需 lazy 回退 DB 查询。
+	TeamGroupRPMOverride *int `json:"team_group_rpm_override,omitempty"`
 }
 
 // APIKeyAuthUserSnapshot 用户快照

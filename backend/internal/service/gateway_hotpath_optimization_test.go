@@ -275,8 +275,14 @@ func TestGetUserGroupRateMultiplier_CacheHitAndNilRepo(t *testing.T) {
 		userGroupRateRepo:  repo,
 		userGroupRateCache: gocache.New(time.Minute, time.Minute),
 	}
+	svc.userGroupRateResolver = newUserGroupRateResolver(
+		repo, svc.userGroupRateCache, time.Minute, &svc.userGroupRateSF, "service.test",
+	)
 	key := "101:202"
-	svc.userGroupRateCache.Set(key, 2.3, time.Minute)
+	// Cache stores *float64 (override) after the resolver refactor — pre-seed
+	// accordingly so this test still exercises the cache-hit path.
+	cached := 2.3
+	svc.userGroupRateCache.Set(key, &cached, time.Minute)
 
 	got := svc.getUserGroupRateMultiplier(context.Background(), 101, 202, 1.1)
 	require.Equal(t, 2.3, got)
@@ -292,7 +298,12 @@ func TestGetUserGroupRateMultiplier_CacheHitAndNilRepo(t *testing.T) {
 	svc2 := &GatewayService{
 		userGroupRateCache: gocache.New(time.Minute, time.Minute),
 	}
-	svc2.userGroupRateCache.Set(key, 1.9, time.Minute)
+	// Cache stores *float64 (override) after the resolver refactor.
+	cached2 := 1.9
+	svc2.userGroupRateCache.Set(key, &cached2, time.Minute)
+	svc2.userGroupRateResolver = newUserGroupRateResolver(
+		nil, svc2.userGroupRateCache, time.Minute, &svc2.userGroupRateSF, "service.test",
+	)
 	require.Equal(t, 1.9, svc2.getUserGroupRateMultiplier(context.Background(), 101, 202, 1.4))
 	require.Equal(t, 1.4, svc2.getUserGroupRateMultiplier(context.Background(), 0, 202, 1.4))
 	svc2.userGroupRateCache.Delete(key)

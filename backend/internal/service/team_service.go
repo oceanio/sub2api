@@ -36,6 +36,7 @@ type TeamService struct {
 	subService           *SubscriptionService
 	paymentConfigService *PaymentConfigService
 	teamUsageRepo        TeamUsageRepository
+	teamGroupRateRepo    TeamGroupRateRepository
 	authCacheInvalidator APIKeyAuthCacheInvalidator
 	entClient            *dbent.Client
 }
@@ -51,6 +52,7 @@ func NewTeamService(
 	subService *SubscriptionService,
 	paymentConfigService *PaymentConfigService,
 	teamUsageRepo TeamUsageRepository,
+	teamGroupRateRepo TeamGroupRateRepository,
 	authCacheInvalidator APIKeyAuthCacheInvalidator,
 	entClient *dbent.Client,
 ) *TeamService {
@@ -65,6 +67,7 @@ func NewTeamService(
 		subService:           subService,
 		paymentConfigService: paymentConfigService,
 		teamUsageRepo:        teamUsageRepo,
+		teamGroupRateRepo:    teamGroupRateRepo,
 		authCacheInvalidator: authCacheInvalidator,
 		entClient:            entClient,
 	}
@@ -76,6 +79,18 @@ func (s *TeamService) invalidateAuthCacheForUser(ctx context.Context, userID int
 		return
 	}
 	s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, userID)
+}
+
+// invalidateAuthCacheForTeam invalidates auth-cache snapshots for every api_key
+// belonging to the team. Called after sys-admin edits to
+// team_group_rate_multipliers.rpm_override so the next request rebuilds the
+// snapshot with the new override value. Coarse-grained on purpose — mirrors
+// InvalidateAuthCacheByGroupID's pattern.
+func (s *TeamService) invalidateAuthCacheForTeam(ctx context.Context, teamID int64) {
+	if s.authCacheInvalidator == nil || teamID <= 0 {
+		return
+	}
+	s.authCacheInvalidator.InvalidateAuthCacheByTeamID(ctx, teamID)
 }
 
 // checkMemberCap returns ErrTeamMemberCapReached if the team has reached its
@@ -206,7 +221,49 @@ func (s *TeamService) UpdateTeam(ctx context.Context, id int64, req UpdateTeamRe
 	if err := s.teamRepo.Update(ctx, existing); err != nil {
 		return nil, fmt.Errorf("update team: %w", err)
 	}
+
+	// 同步分组倍率覆盖。分两段独立同步，仅当 rpm_override 段被触动时才需要清
+	// auth cache（rate_multiplier 由 gateway resolver TTL 缓存自然过期）。
+	if s.teamGroupRateRepo != nil {
+		if req.GroupRates != nil {
+			if err := s.teamGroupRateRepo.SyncTeamGroupRates(ctx, id, req.GroupRates); err != nil {
+				return nil, fmt.Errorf("sync team group rates: %w", err)
+			}
+		}
+		if req.GroupRPMOverrides != nil {
+			if err := s.teamGroupRateRepo.SyncTeamGroupRPMOverrides(ctx, id, req.GroupRPMOverrides); err != nil {
+				return nil, fmt.Errorf("sync team group rpm overrides: %w", err)
+			}
+			s.invalidateAuthCacheForTeam(ctx, id)
+		}
+	}
+
 	return s.teamRepo.GetByID(ctx, id)
+}
+
+// GetTeamGroupRateConfig returns the team's per-group rate + rpm override
+// maps for the admin "团队 × 分组" management page. Only includes groups that
+// have at least one column non-NULL — caller fills in defaults from the
+// global groups list.
+func (s *TeamService) GetTeamGroupRateConfig(ctx context.Context, teamID int64) (map[int64]float64, map[int64]int, error) {
+	if s.teamGroupRateRepo == nil {
+		return nil, nil, nil
+	}
+	entries, err := s.teamGroupRateRepo.GetByTeamID(ctx, teamID)
+	if err != nil {
+		return nil, nil, err
+	}
+	rates := make(map[int64]float64)
+	rpms := make(map[int64]int)
+	for _, e := range entries {
+		if e.RateMultiplier != nil {
+			rates[e.GroupID] = *e.RateMultiplier
+		}
+		if e.RPMOverride != nil {
+			rpms[e.GroupID] = *e.RPMOverride
+		}
+	}
+	return rates, rpms, nil
 }
 
 func (s *TeamService) DeleteTeam(ctx context.Context, id int64) error {

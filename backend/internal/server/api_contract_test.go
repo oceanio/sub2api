@@ -1524,6 +1524,10 @@ func (stubApiKeyCache) DeleteAuthCache(ctx context.Context, key string) error {
 	return nil
 }
 
+func (stubApiKeyCache) DeleteAuthCacheBatch(ctx context.Context, cacheKeys []string) error {
+	return nil
+}
+
 func (stubApiKeyCache) PublishAuthCacheInvalidation(ctx context.Context, cacheKey string) error {
 	return nil
 }
@@ -2208,6 +2212,10 @@ func (r *stubApiKeyRepo) ListKeysByUserID(ctx context.Context, userID int64) ([]
 }
 
 func (r *stubApiKeyRepo) ListKeysByGroupID(ctx context.Context, groupID int64) ([]string, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *stubApiKeyRepo) ListKeysByTeamID(ctx context.Context, teamID int64) ([]string, error) {
 	return nil, errors.New("not implemented")
 }
 

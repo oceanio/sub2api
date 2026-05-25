@@ -124,6 +124,10 @@ func (s *apiKeyRepoStub) ListKeysByGroupID(ctx context.Context, groupID int64) (
 	panic("unexpected ListKeysByGroupID call")
 }
 
+func (s *apiKeyRepoStub) ListKeysByTeamID(ctx context.Context, teamID int64) ([]string, error) {
+	panic("unexpected ListKeysByTeamID call")
+}
+
 func (s *apiKeyRepoStub) IncrementQuotaUsed(ctx context.Context, id int64, amount float64) (float64, error) {
 	panic("unexpected IncrementQuotaUsed call")
 }
@@ -196,6 +200,11 @@ func (s *apiKeyCacheStub) SetAuthCache(ctx context.Context, key string, entry *A
 
 func (s *apiKeyCacheStub) DeleteAuthCache(ctx context.Context, key string) error {
 	s.deleteAuthKeys = append(s.deleteAuthKeys, key)
+	return nil
+}
+
+func (s *apiKeyCacheStub) DeleteAuthCacheBatch(ctx context.Context, cacheKeys []string) error {
+	s.deleteAuthKeys = append(s.deleteAuthKeys, cacheKeys...)
 	return nil
 }
 

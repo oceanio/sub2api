@@ -24,6 +24,8 @@ func registerAdminTeamRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		teams.POST("/:id/refund", h.Admin.Team.RefundTeam)
 		teams.POST("/:id/members", h.Admin.Team.AddMember)
 		teams.GET("/:id", h.TeamScoped.GetTeam)
+		// 团队×分组 倍率/RPM 覆盖：仅 sys admin。team_admin 路径不挂这个。
+		teams.GET("/:id/group-rates", h.Admin.Team.GetGroupRateConfig)
 
 		// Shared team-scoped endpoints: implementation lives in TeamScoped and
 		// is shared with /team/:teamId/* (see routes/team.go).

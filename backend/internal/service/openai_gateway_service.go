@@ -334,6 +334,7 @@ type OpenAIGatewayService struct {
 	rateLimitService      *RateLimitService
 	billingCacheService   *BillingCacheService
 	userGroupRateResolver *userGroupRateResolver
+	teamGroupRateResolver *teamGroupRateResolver
 	httpUpstream          HTTPUpstream
 	deferredService       *DeferredService
 	openAITokenProvider   *OpenAITokenProvider
@@ -373,6 +374,7 @@ func NewOpenAIGatewayService(
 	userRepo UserRepository,
 	userSubRepo UserSubscriptionRepository,
 	userGroupRateRepo UserGroupRateRepository,
+	teamGroupRateRepo TeamGroupRateRepository,
 	cache GatewayCache,
 	cfg *config.Config,
 	schedulerSnapshot *SchedulerSnapshotService,
@@ -404,6 +406,13 @@ func NewOpenAIGatewayService(
 		billingCacheService: billingCacheService,
 		userGroupRateResolver: newUserGroupRateResolver(
 			userGroupRateRepo,
+			nil,
+			resolveUserGroupRateCacheTTL(cfg),
+			nil,
+			"service.openai_gateway",
+		),
+		teamGroupRateResolver: newTeamGroupRateResolver(
+			teamGroupRateRepo,
 			nil,
 			resolveUserGroupRateCacheTTL(cfg),
 			nil,
@@ -5465,11 +5474,26 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		multiplier = s.cfg.Default.RateMultiplier
 	}
 	if apiKey.GroupID != nil && apiKey.Group != nil {
-		resolver := s.userGroupRateResolver
-		if resolver == nil {
-			resolver = newUserGroupRateResolver(nil, nil, resolveUserGroupRateCacheTTL(s.cfg), nil, "service.openai_gateway")
+		userResolver := s.userGroupRateResolver
+		if userResolver == nil {
+			userResolver = newUserGroupRateResolver(nil, nil, resolveUserGroupRateCacheTTL(s.cfg), nil, "service.openai_gateway")
 		}
-		multiplier = resolver.Resolve(ctx, user.ID, *apiKey.GroupID, apiKey.Group.RateMultiplier)
+		groupDefault := apiKey.Group.RateMultiplier
+		if override := userResolver.ResolveOverride(ctx, user.ID, *apiKey.GroupID); override != nil {
+			multiplier = *override
+		} else if apiKey.TeamID != nil && *apiKey.TeamID > 0 {
+			if r := s.teamGroupRateResolver; r != nil {
+				if teamOverride := r.ResolveOverride(ctx, *apiKey.TeamID, *apiKey.GroupID); teamOverride != nil {
+					multiplier = *teamOverride
+				} else {
+					multiplier = groupDefault
+				}
+			} else {
+				multiplier = groupDefault
+			}
+		} else {
+			multiplier = groupDefault
+		}
 	}
 	imageMultiplier := resolveImageRateMultiplier(apiKey, multiplier)
 

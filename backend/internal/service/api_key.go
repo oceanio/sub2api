@@ -37,6 +37,11 @@ type APIKey struct {
 	TeamMemberID *int64  // team_members.id for sub_quota_used tracking (transient, from auth snapshot)
 	SubQuota     float64 // per-member spend cap (transient, from auth snapshot)
 	SubQuotaUsed float64 // current accumulated spend (transient, from auth snapshot)
+	// TeamGroupRPMOverride (transient, from auth snapshot) is the (team, group)
+	// RPM override populated when TeamID != nil and GroupID != nil. Used by
+	// billing_cache_service.checkRPM as the second tier of the RPM cascade
+	// (user_group → team_group → group → user). nil = no override.
+	TeamGroupRPMOverride *int `json:"-"`
 	Status      string
 	IPWhitelist []string
 	IPBlacklist []string

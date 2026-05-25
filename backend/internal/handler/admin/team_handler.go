@@ -33,9 +33,15 @@ type createTeamRequest struct {
 }
 
 type updateTeamRequest struct {
-	Name                 string `json:"name" binding:"required"`
+	Name                 string `json:"name"` // PATCH semantics: 空串表示不动 (service 内 if req.Name != "" 才赋值)
 	MaxMembers           *int   `json:"max_members" binding:"omitempty,gte=0"`
 	SubscriptionsEnabled *bool  `json:"subscriptions_enabled"`
+
+	// 团队×分组 倍率/RPM 覆盖（admin 在「分组管理」tab 编辑）。
+	// 与 user_group 的 group_rates 形状对称：缺席 = 不动；value nil = 清空该列；
+	// 两列都被清空时整行 DELETE。
+	GroupRates        map[int64]*float64 `json:"group_rates"`
+	GroupRPMOverrides map[int64]*int     `json:"group_rpm_overrides"`
 }
 
 type rechargeTeamRequest struct {
@@ -102,6 +108,8 @@ func (h *AdminTeamHandler) UpdateTeam(c *gin.Context) {
 		Name:                 req.Name,
 		MaxMembers:           req.MaxMembers,
 		SubscriptionsEnabled: req.SubscriptionsEnabled,
+		GroupRates:           req.GroupRates,
+		GroupRPMOverrides:    req.GroupRPMOverrides,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -122,6 +130,32 @@ func (h *AdminTeamHandler) DeleteTeam(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"message": "team deleted"})
+}
+
+// GetGroupRateConfig GET /api/v1/admin/teams/:id/group-rates
+// 返回团队×分组的倍率/RPM 覆盖两个 map，给「分组管理」编辑页用。仅 sys admin。
+func (h *AdminTeamHandler) GetGroupRateConfig(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "invalid team id")
+		return
+	}
+	rates, rpms, err := h.teamService.GetTeamGroupRateConfig(c.Request.Context(), id)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	// 显式空 map 而非 nil，方便前端不区分 "尚未加载" / "无覆盖"。
+	if rates == nil {
+		rates = map[int64]float64{}
+	}
+	if rpms == nil {
+		rpms = map[int64]int{}
+	}
+	response.Success(c, gin.H{
+		"group_rates":         rates,
+		"group_rpm_overrides": rpms,
+	})
 }
 
 // RechargeTeam POST /api/v1/admin/teams/:id/recharge

@@ -69,6 +69,7 @@ type APIKeyRepository interface {
 	CountByGroupID(ctx context.Context, groupID int64) (int64, error)
 	ListKeysByUserID(ctx context.Context, userID int64) ([]string, error)
 	ListKeysByGroupID(ctx context.Context, groupID int64) ([]string, error)
+	ListKeysByTeamID(ctx context.Context, teamID int64) ([]string, error)
 
 	// Quota methods
 	IncrementQuotaUsed(ctx context.Context, id int64, amount float64) (float64, error)
@@ -136,6 +137,13 @@ type APIKeyCache interface {
 	SetAuthCache(ctx context.Context, key string, entry *APIKeyAuthCacheEntry, ttl time.Duration) error
 	DeleteAuthCache(ctx context.Context, key string) error
 
+	// DeleteAuthCacheBatch performs Redis DEL on many cacheKeys in a single
+	// pipeline + emits one PUBLISH carrying the JSON-encoded array. Subscribers
+	// recognise the array shape via the leading '[' and expand it locally.
+	// Falls back to per-key calls only when the batch implementation is
+	// missing on a stub.
+	DeleteAuthCacheBatch(ctx context.Context, cacheKeys []string) error
+
 	// Pub/Sub for L1 cache invalidation across instances
 	PublishAuthCacheInvalidation(ctx context.Context, cacheKey string) error
 	SubscribeAuthCacheInvalidation(ctx context.Context, handler func(cacheKey string)) error
@@ -146,6 +154,7 @@ type APIKeyAuthCacheInvalidator interface {
 	InvalidateAuthCacheByKey(ctx context.Context, key string)
 	InvalidateAuthCacheByUserID(ctx context.Context, userID int64)
 	InvalidateAuthCacheByGroupID(ctx context.Context, groupID int64)
+	InvalidateAuthCacheByTeamID(ctx context.Context, teamID int64)
 }
 
 // CreateAPIKeyRequest 创建API Key请求
@@ -199,6 +208,7 @@ type APIKeyService struct {
 	groupRepo             GroupRepository
 	userSubRepo           UserSubscriptionRepository
 	userGroupRateRepo     UserGroupRateRepository
+	teamGroupRateRepo     TeamGroupRateRepository // optional: for team-group RPM snapshot population
 	cache                 APIKeyCache
 	rateLimitCacheInvalid RateLimitCacheInvalidator // optional: invalidate Redis rate limit cache
 	entClient             *dbent.Client             // optional: for batched transactional ops (bulk import)
@@ -248,6 +258,13 @@ func (s *APIKeyService) SetEntClient(c *dbent.Client) {
 // SetTeamMemberRepository injects the team member repo for auth snapshot population.
 func (s *APIKeyService) SetTeamMemberRepository(repo TeamMemberRepository) {
 	s.teamMemberRepo = repo
+}
+
+// SetTeamGroupRateRepository injects the team-group rate repo for auth snapshot
+// population (TeamGroupRPMOverride). Optional; if nil, snapshot will not carry
+// a team override and checkRPM falls through to group / user defaults.
+func (s *APIKeyService) SetTeamGroupRateRepository(repo TeamGroupRateRepository) {
+	s.teamGroupRateRepo = repo
 }
 
 func (s *APIKeyService) compileAPIKeyIPRules(apiKey *APIKey) {

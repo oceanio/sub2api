@@ -531,8 +531,29 @@ export async function adminCreateTeam(payload: {
   return data
 }
 
-export async function adminUpdateTeam(id: number, payload: { name: string; max_members?: number; subscriptions_enabled?: boolean }): Promise<Team> {
+export async function adminUpdateTeam(id: number, payload: {
+  name: string
+  max_members?: number
+  subscriptions_enabled?: boolean
+  /** 团队×分组 倍率覆盖：map[group_id] => number 设置 / null 删除 / 缺席不动 */
+  group_rates?: Record<number, number | null>
+  /** 团队×分组 RPM 覆盖：map[group_id] => number 设置（0=该分组免检）/ null 删除 */
+  group_rpm_overrides?: Record<number, number | null>
+}): Promise<Team> {
   const { data } = await apiClient.put<Team>(`/admin/teams/${id}`, payload)
+  return data
+}
+
+/** GET /api/v1/admin/teams/:id/group-rates  返回 sys admin 编辑「分组管理」需要的两个 map。
+ *  team_admin 路径不存在此端点。 */
+export async function adminGetTeamGroupRates(id: number): Promise<{
+  group_rates: Record<number, number>
+  group_rpm_overrides: Record<number, number>
+}> {
+  const { data } = await apiClient.get<{
+    group_rates: Record<number, number>
+    group_rpm_overrides: Record<number, number>
+  }>(`/admin/teams/${id}/group-rates`)
   return data
 }
 
@@ -591,4 +612,5 @@ export const teamAPI = {
   adminDeleteTeam,
   adminRechargeTeam,
   adminRefundTeam,
+  adminGetTeamGroupRates,
 }

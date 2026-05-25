@@ -93,6 +93,12 @@ var (
 	userGroupRateCacheSFSharedTotal atomic.Int64
 	userGroupRateCacheFallbackTotal atomic.Int64
 
+	teamGroupRateCacheHitTotal      atomic.Int64
+	teamGroupRateCacheMissTotal     atomic.Int64
+	teamGroupRateCacheLoadTotal     atomic.Int64
+	teamGroupRateCacheSFSharedTotal atomic.Int64
+	teamGroupRateCacheFallbackTotal atomic.Int64
+
 	modelsListCacheHitTotal   atomic.Int64
 	modelsListCacheMissTotal  atomic.Int64
 	modelsListCacheStoreTotal atomic.Int64
@@ -548,6 +554,7 @@ type GatewayService struct {
 	userRepo              UserRepository
 	userSubRepo           UserSubscriptionRepository
 	userGroupRateRepo     UserGroupRateRepository
+	teamGroupRateRepo     TeamGroupRateRepository
 	cache                 GatewayCache
 	digestStore           *DigestSessionStore
 	cfg                   *config.Config
@@ -565,6 +572,9 @@ type GatewayService struct {
 	userGroupRateResolver *userGroupRateResolver
 	userGroupRateCache    *gocache.Cache
 	userGroupRateSF       singleflight.Group
+	teamGroupRateResolver *teamGroupRateResolver
+	teamGroupRateCache    *gocache.Cache
+	teamGroupRateSF       singleflight.Group
 	modelsListCache       *gocache.Cache
 	modelsListCacheTTL    time.Duration
 	settingService        *SettingService
@@ -596,6 +606,7 @@ func NewGatewayService(
 	userRepo UserRepository,
 	userSubRepo UserSubscriptionRepository,
 	userGroupRateRepo UserGroupRateRepository,
+	teamGroupRateRepo TeamGroupRateRepository,
 	cache GatewayCache,
 	cfg *config.Config,
 	schedulerSnapshot *SchedulerSnapshotService,
@@ -627,6 +638,7 @@ func NewGatewayService(
 		userRepo:             userRepo,
 		userSubRepo:          userSubRepo,
 		userGroupRateRepo:    userGroupRateRepo,
+		teamGroupRateRepo:    teamGroupRateRepo,
 		cache:                cache,
 		digestStore:          digestStore,
 		cfg:                  cfg,
@@ -642,6 +654,7 @@ func NewGatewayService(
 		sessionLimitCache:    sessionLimitCache,
 		rpmCache:             rpmCache,
 		userGroupRateCache:   gocache.New(userGroupRateTTL, time.Minute),
+		teamGroupRateCache:   gocache.New(userGroupRateTTL, time.Minute),
 		settingService:       settingService,
 		modelsListCache:      gocache.New(modelsListTTL, time.Minute),
 		modelsListCacheTTL:   modelsListTTL,
@@ -656,6 +669,13 @@ func NewGatewayService(
 		svc.userGroupRateCache,
 		userGroupRateTTL,
 		&svc.userGroupRateSF,
+		"service.gateway",
+	)
+	svc.teamGroupRateResolver = newTeamGroupRateResolver(
+		teamGroupRateRepo,
+		svc.teamGroupRateCache,
+		userGroupRateTTL,
+		&svc.teamGroupRateSF,
 		"service.gateway",
 	)
 	svc.debugModelRouting.Store(parseDebugEnvBool(os.Getenv("SUB2API_DEBUG_MODEL_ROUTING")))
@@ -8007,6 +8027,31 @@ func (s *GatewayService) getUserGroupRateMultiplier(ctx context.Context, userID,
 	return resolver.Resolve(ctx, userID, groupID, groupDefaultMultiplier)
 }
 
+// resolveEffectiveRateMultiplier 多级解析倍率 —— 优先级：
+//
+//	user_group override → team_group override (仅当 teamID != nil) → group default → caller-given fallback
+//
+// 实现刻意拆出来跟 user_group/team_group 两个 resolver 解耦：每个 resolver
+// 只回答「override 存在与否」，链式 fallthrough 在这里做。
+func (s *GatewayService) resolveEffectiveRateMultiplier(ctx context.Context, userID int64, teamID *int64, groupID int64, groupDefaultMultiplier float64) float64 {
+	if s == nil {
+		return groupDefaultMultiplier
+	}
+	if r := s.userGroupRateResolver; r != nil {
+		if override := r.ResolveOverride(ctx, userID, groupID); override != nil {
+			return *override
+		}
+	}
+	if teamID != nil && *teamID > 0 {
+		if r := s.teamGroupRateResolver; r != nil {
+			if override := r.ResolveOverride(ctx, *teamID, groupID); override != nil {
+				return *override
+			}
+		}
+	}
+	return groupDefaultMultiplier
+}
+
 // RecordUsageInput 记录使用量的输入参数
 type RecordUsageInput struct {
 	Result             *ForwardResult
@@ -8533,14 +8578,14 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		cacheTTLOverridden = (result.Usage.CacheCreation5mTokens + result.Usage.CacheCreation1hTokens) > 0
 	}
 
-	// 获取费率倍数（优先级：用户专属 > 分组默认 > 系统默认）
+	// 获取费率倍数（优先级：用户专属 > 团队专属 > 分组默认 > 系统默认）
 	multiplier := 1.0
 	if s.cfg != nil {
 		multiplier = s.cfg.Default.RateMultiplier
 	}
 	if apiKey.GroupID != nil && apiKey.Group != nil {
 		groupDefault := apiKey.Group.RateMultiplier
-		multiplier = s.getUserGroupRateMultiplier(ctx, user.ID, *apiKey.GroupID, groupDefault)
+		multiplier = s.resolveEffectiveRateMultiplier(ctx, user.ID, apiKey.TeamID, *apiKey.GroupID, groupDefault)
 	}
 	imageMultiplier := resolveImageRateMultiplier(apiKey, multiplier)
 

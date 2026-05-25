@@ -184,6 +184,9 @@ func (m *mockChannelAuthCacheInvalidator) InvalidateAuthCacheByGroupID(_ context
 	m.invalidatedGroupIDs = append(m.invalidatedGroupIDs, groupID)
 }
 
+func (m *mockChannelAuthCacheInvalidator) InvalidateAuthCacheByTeamID(_ context.Context, _ int64) {
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

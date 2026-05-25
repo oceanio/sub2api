@@ -1177,6 +1177,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		nil,
 		nil,
 		nil,
+		nil,
 		cfg,
 		nil,
 		nil,

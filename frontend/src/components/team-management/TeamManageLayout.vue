@@ -82,6 +82,10 @@ const tabs = computed(() => {
   ]
   if (!subsHidden) list.push({ label: t('team.nav.subscriptions'), path: `${base}/subscriptions` })
   list.push({ label: t('team.nav.balance'), path: `${base}/balance` })
+  // 分组管理 tab 仅 sys admin 可见。team_admin 路径既无路由、也无后端 endpoint。
+  if (props.source === 'admin') {
+    list.push({ label: t('team.nav.groupRates'), path: `${base}/group-rates` })
+  }
   return list
 })
 

@@ -126,6 +126,7 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 			apikey.FieldID,
 			apikey.FieldUserID,
 			apikey.FieldGroupID,
+			apikey.FieldTeamID,
 			apikey.FieldName,
 			apikey.FieldStatus,
 			apikey.FieldIPWhitelist,
@@ -499,6 +500,21 @@ func (r *apiKeyRepository) ListKeysByUserID(ctx context.Context, userID int64) (
 func (r *apiKeyRepository) ListKeysByGroupID(ctx context.Context, groupID int64) ([]string, error) {
 	keys, err := r.activeQuery().
 		Where(apikey.GroupIDEQ(groupID)).
+		Select(apikey.FieldKey).
+		Strings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return keys, nil
+}
+
+// ListKeysByTeamID returns active api_key strings for keys belonging to the
+// given team. Used by InvalidateAuthCacheByTeamID to flush auth-cache
+// snapshots after a sys-admin-only team-scoped config change (e.g. team_group
+// rpm_override edit).
+func (r *apiKeyRepository) ListKeysByTeamID(ctx context.Context, teamID int64) ([]string, error) {
+	keys, err := r.activeQuery().
+		Where(apikey.TeamIDEQ(teamID)).
 		Select(apikey.FieldKey).
 		Strings(ctx)
 	if err != nil {

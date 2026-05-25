@@ -189,6 +189,15 @@ type UpdateTeamRequest struct {
 	Name                 string
 	MaxMembers           *int  // sys admin only; pointer so absence means "leave unchanged"
 	SubscriptionsEnabled *bool // sys admin only; pointer so absence means "leave unchanged"
+
+	// GroupRates 与 GroupRPMOverrides 是 admin 在「分组管理」tab 编辑的两个
+	// 平行 map。语义与 user_group 同：
+	//   nil 整个字段     → 不动 (不做任何 sync)
+	//   非 nil 但条目空  → 等同于不动 (sync 是 no-op)
+	//   条目 value nil   → 清空该列；若 rate+rpm 都为 NULL 则整行 DELETE
+	//   条目 value 非 nil → upsert
+	GroupRates        map[int64]*float64 // group_id → rate_multiplier override
+	GroupRPMOverrides map[int64]*int     // group_id → rpm override (0 = exempt)
 }
 
 type RechargeTeamRequest struct {

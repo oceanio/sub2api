@@ -45,6 +45,12 @@ export const teamRoutes: RouteRecordRaw[] = [
     component: () => import('@/views/admin/TeamManageBalance.vue'),
     meta: { requiresAuth: true, requiresAdmin: true, titleKey: 'team.nav.balance' },
   },
+  {
+    path: '/admin/teams/:id/group-rates',
+    name: 'AdminTeamGroupRates',
+    component: () => import('@/views/admin/TeamManageGroupRates.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, titleKey: 'team.nav.groupRates' },
+  },
   // ── team_admin (parametric URL: one user can admin multiple teams) ────────
   {
     path: '/team',

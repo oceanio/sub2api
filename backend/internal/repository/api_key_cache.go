@@ -94,6 +94,50 @@ func (c *apiKeyCache) DeleteAuthCache(ctx context.Context, key string) error {
 	return c.rdb.Del(ctx, apiKeyAuthCacheKey(key)).Err()
 }
 
+// authCacheBatchChunkSize bounds the number of keys per Redis pipeline so a
+// single network frame doesn't blow up under O(1k) team-size invalidations.
+// 100 是一个保守的折衷：1000 keys → 10 个 pipeline / 20 个命令；既不会因为单
+// 包过大导致 Redis 阻塞，也避免来回太多次往返抵消 batch 的收益。
+const authCacheBatchChunkSize = 100
+
+// DeleteAuthCacheBatch evicts many cacheKeys from Redis in one pipeline and
+// emits a single JSON-array PUBLISH so subscribers process exactly one message
+// regardless of fan-out size. Used by InvalidateAuthCacheBy{UserID,GroupID,TeamID}
+// for O(N)-fan-out evictions; ByKey still uses the single-key path.
+//
+// Performance: 500 cacheKeys → 2 RTT total (1 pipelined exec, 1 PUBLISH)
+// instead of 1000 sequential RTTs.
+func (c *apiKeyCache) DeleteAuthCacheBatch(ctx context.Context, cacheKeys []string) error {
+	if len(cacheKeys) == 0 {
+		return nil
+	}
+	// Chunk to bound per-pipeline packet size; one PUBLISH per chunk so
+	// each subscriber receives a bounded payload.
+	for start := 0; start < len(cacheKeys); start += authCacheBatchChunkSize {
+		end := start + authCacheBatchChunkSize
+		if end > len(cacheKeys) {
+			end = len(cacheKeys)
+		}
+		chunk := cacheKeys[start:end]
+
+		redisKeys := make([]string, len(chunk))
+		for i, k := range chunk {
+			redisKeys[i] = apiKeyAuthCacheKey(k)
+		}
+		payload, err := json.Marshal(chunk)
+		if err != nil {
+			return err
+		}
+		pipe := c.rdb.Pipeline()
+		pipe.Del(ctx, redisKeys...)
+		pipe.Publish(ctx, authCacheInvalidateChannel, payload)
+		if _, err := pipe.Exec(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // PublishAuthCacheInvalidation publishes a cache invalidation message to all instances
 func (c *apiKeyCache) PublishAuthCacheInvalidation(ctx context.Context, cacheKey string) error {
 	return c.rdb.Publish(ctx, authCacheInvalidateChannel, cacheKey).Err()
