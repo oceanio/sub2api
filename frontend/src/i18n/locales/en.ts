@@ -298,6 +298,8 @@ export default {
     disabled: 'Disabled',
     total: 'Total',
     balance: 'Balance',
+    teamBalance: 'Team Balance',
+    team: 'Team',
     available: 'Available',
     copiedToClipboard: 'Copied to clipboard',
     detail: 'Detail',

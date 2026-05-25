@@ -1,8 +1,10 @@
 <template>
   <!-- Row 1: Core Stats -->
   <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
-    <!-- Balance -->
-    <div v-if="!isSimple" class="card p-4">
+    <!-- Balance: hide personal balance for team members — they pay from team
+         pool, the personal balance card is irrelevant and visually competes
+         with the team sub-quota card below. -->
+    <div v-if="!isSimple && !teamMember" class="card p-4">
       <div class="flex items-center gap-3">
         <div class="rounded-lg bg-emerald-100 p-2 dark:bg-emerald-900/30">
           <svg class="h-5 w-5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

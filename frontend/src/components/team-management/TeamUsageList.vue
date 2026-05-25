@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-6">
-    <UsageStatsCards :stats="(stats as AdminUsageStatsResponse | null)" />
+    <UsageStatsCards :stats="(stats as AdminUsageStatsResponse | null)" :hide-cost="true" />
 
     <!-- Charts: date range + granularity, then 4 charts in 2x2 grid -->
     <div class="space-y-4">
@@ -37,6 +37,7 @@
           :loading="modelStatsLoading"
           :show-source-toggle="true"
           :show-metric-toggle="true"
+          :hide-cost="true"
           :start-date="startDate"
           :end-date="endDate"
           :filters="breakdownFilters"
@@ -49,6 +50,7 @@
           :group-stats="groupStats"
           :loading="chartsLoading"
           :show-metric-toggle="true"
+          :hide-cost="true"
           :start-date="startDate"
           :end-date="endDate"
           :filters="breakdownFilters"
@@ -66,6 +68,7 @@
           :loading="endpointStatsLoading"
           :show-source-toggle="true"
           :show-metric-toggle="true"
+          :hide-cost="true"
           :available-sources="['inbound', 'path']"
           :title="t('usage.endpointDistribution')"
           :start-date="startDate"
@@ -75,7 +78,7 @@
           :breakdown-source="props.source"
           :team-id="props.teamId"
         />
-        <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
+        <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" :hide-cost="true" />
       </div>
     </div>
 
@@ -115,11 +118,11 @@
             <label class="input-label">{{ t('usage.type') }}</label>
             <Select v-model="filters.request_type" :options="requestTypeOptions" @change="applyFilters" />
           </div>
-          <div class="w-full sm:w-auto sm:min-w-[200px]">
+          <div v-if="isSysAdmin" class="w-full sm:w-auto sm:min-w-[200px]">
             <label class="input-label">{{ t('admin.usage.billingType') }}</label>
             <Select v-model="filters.billing_type" :options="billingTypeOptions" @change="applyFilters" />
           </div>
-          <div class="w-full sm:w-auto sm:min-w-[200px]">
+          <div v-if="isSysAdmin" class="w-full sm:w-auto sm:min-w-[200px]">
             <label class="input-label">{{ t('admin.usage.billingMode') }}</label>
             <Select v-model="filters.billing_mode" :options="billingModeOptions" @change="applyFilters" />
           </div>
@@ -138,6 +141,7 @@
       :data="usageLogs"
       :loading="loading"
       :columns="visibleColumns"
+      :hide-cost-breakdown="true"
       :server-side-sort="false"
     />
     <Pagination
@@ -181,6 +185,13 @@ const props = defineProps<Props>()
 
 const { t } = useI18n()
 const appStore = useAppStore()
+
+// Team usage views always hide the cost *breakdown* (standard cost, account
+// cost, rate multiplier) — regardless of viewer role. The headline "fee"
+// (actual_cost) is always kept so users can still see what was paid; only the
+// underlying cost figures are suppressed. Sys admin keeps billing_type /
+// billing_mode filters above for diagnostics.
+const isSysAdmin = computed(() => props.source === 'admin')
 
 type DistributionMetric = 'tokens' | 'actual_cost'
 type ModelDistributionSource = 'requested' | 'upstream' | 'mapping'
@@ -307,12 +318,18 @@ const granularityOptions = computed<SelectOption[]>(() => [
 
 // Drop columns that don't apply to team scope (account / debug-log actions / IP / UA).
 // ALWAYS_VISIBLE intentionally omits 'actions' so the debug-log button is hidden.
+// 'cost' column is kept (it shows the actual fee), but the cost breakdown
+// tooltip + account-billed line are hidden via hide-cost-breakdown on the
+// table. 'billing_mode' stays visible for sys admin diagnostics.
 const ALWAYS_VISIBLE = ['user', 'created_at']
-const TEAM_COLUMN_KEYS = [
+const TEAM_COLUMN_KEYS_BASE = [
   'user', 'api_key', 'model', 'reasoning_effort', 'endpoint',
   'group', 'stream', 'billing_mode', 'tokens', 'cost',
   'first_token', 'duration', 'created_at',
 ]
+const teamColumnKeys = computed(() =>
+  isSysAdmin.value ? TEAM_COLUMN_KEYS_BASE : TEAM_COLUMN_KEYS_BASE.filter(k => k !== 'billing_mode')
+)
 
 const allColumns = computed<Column[]>(() => [
   { key: 'user', label: t('admin.usage.user'), sortable: false },
@@ -331,7 +348,7 @@ const allColumns = computed<Column[]>(() => [
 ])
 
 const visibleColumns = computed<Column[]>(() =>
-  allColumns.value.filter((col) => ALWAYS_VISIBLE.includes(col.key) || TEAM_COLUMN_KEYS.includes(col.key))
+  allColumns.value.filter((col) => ALWAYS_VISIBLE.includes(col.key) || teamColumnKeys.value.includes(col.key))
 )
 
 // Filter fields forwarded into chart drill-down calls so the per-user breakdown
@@ -545,15 +562,15 @@ async function exportToExcel() {
     const XLSX = await import('xlsx')
     // Columns aligned with admin export, minus account / IP / UserAgent / Request ID
     // (intentionally dropped to keep the team export team-scoped and safe).
+    // Upstream model / upstream endpoint are also dropped — team users shouldn't
+    // see the routing target. Cost breakdown is omitted; only actual_cost stays.
     const headers = [
       t('usage.time'), t('admin.usage.user'), t('usage.apiKeyFilter'),
-      t('usage.model'), t('usage.upstreamModel'), t('usage.reasoningEffort'), t('admin.usage.group'),
-      t('usage.inboundEndpoint'), t('usage.upstreamEndpoint'), t('usage.type'),
+      t('usage.model'), t('usage.reasoningEffort'), t('admin.usage.group'),
+      t('usage.inboundEndpoint'), t('usage.type'),
       t('admin.usage.inputTokens'), t('admin.usage.outputTokens'),
       t('admin.usage.cacheReadTokens'), t('admin.usage.cacheCreationTokens'),
-      t('admin.usage.inputCost'), t('admin.usage.outputCost'),
-      t('admin.usage.cacheReadCost'), t('admin.usage.cacheCreationCost'),
-      t('usage.rate'), t('usage.original'), t('usage.userBilled'),
+      t('usage.userBilled'),
       t('usage.firstToken'), t('usage.duration'),
     ]
     const ws = XLSX.utils.aoa_to_sheet([headers])
@@ -575,22 +592,14 @@ async function exportToExcel() {
         log.user?.email || '',
         log.api_key?.name || '',
         log.model,
-        log.upstream_model || '',
         formatReasoningEffort(log.reasoning_effort),
         log.group?.name || '',
         log.inbound_endpoint || '',
-        log.upstream_endpoint || '',
         getRequestTypeLabel(log),
         log.input_tokens,
         log.output_tokens,
         log.cache_read_tokens,
         log.cache_creation_tokens,
-        log.input_cost?.toFixed(6) || '0.000000',
-        log.output_cost?.toFixed(6) || '0.000000',
-        log.cache_read_cost?.toFixed(6) || '0.000000',
-        log.cache_creation_cost?.toFixed(6) || '0.000000',
-        log.rate_multiplier?.toPrecision(4) || '1.00',
-        log.total_cost?.toFixed(6) || '0.000000',
         log.actual_cost?.toFixed(6) || '0.000000',
         log.first_token_ms ?? '',
         log.duration_ms,

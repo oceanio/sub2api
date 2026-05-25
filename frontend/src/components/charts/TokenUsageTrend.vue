@@ -49,10 +49,15 @@ ChartJS.register(
 
 const { t } = useI18n()
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   trendData: TrendDataPoint[]
   loading?: boolean
-}>()
+  /** Hide the standard-cost half of the tooltip footer. Actual cost (fee) stays. */
+  hideCost?: boolean
+}>(), {
+  loading: false,
+  hideCost: false,
+})
 
 const isDarkMode = computed(() => {
   return document.documentElement.classList.contains('dark')
@@ -155,6 +160,9 @@ const lineOptions = computed(() => ({
           const dataIndex = tooltipItems[0]?.dataIndex
           if (dataIndex !== undefined && props.trendData[dataIndex]) {
             const data = props.trendData[dataIndex]
+            if (props.hideCost) {
+              return `Actual: $${formatCost(data.actual_cost)}`
+            }
             return `Actual: $${formatCost(data.actual_cost)} | Standard: $${formatCost(data.cost)}`
           }
           return ''

@@ -298,6 +298,8 @@ export default {
     disabled: '已禁用',
     total: '总计',
     balance: '余额',
+    teamBalance: '团队余额',
+    team: '团队',
     available: '可用',
     copiedToClipboard: '已复制到剪贴板',
     detail: '详情',

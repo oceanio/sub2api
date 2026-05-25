@@ -44,13 +44,16 @@
         <!-- Subscription Progress (for users with active subscriptions) -->
         <SubscriptionProgressMini v-if="user" />
 
-        <!-- Balance Display -->
+        <!-- Balance Display (个人余额 vs 团队余额 二选一：team_members.user_id 存在则显示团队余额) -->
         <div
           v-if="user"
-          class="hidden items-center gap-2 rounded-xl bg-primary-50 px-3 py-1.5 dark:bg-primary-900/20 sm:flex"
+          class="hidden items-center gap-2 rounded-xl px-3 py-1.5 sm:flex"
+          :class="isTeamMember ? 'bg-emerald-50 dark:bg-emerald-900/20' : 'bg-primary-50 dark:bg-primary-900/20'"
+          :title="isTeamMember ? t('common.teamBalance') : t('common.balance')"
         >
           <svg
-            class="h-4 w-4 text-primary-600 dark:text-primary-400"
+            class="h-4 w-4"
+            :class="isTeamMember ? 'text-emerald-600 dark:text-emerald-400' : 'text-primary-600 dark:text-primary-400'"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -62,8 +65,17 @@
               d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"
             />
           </svg>
-          <span class="text-sm font-semibold text-primary-700 dark:text-primary-300">
-            ${{ user.balance?.toFixed(2) || '0.00' }}
+          <span
+            class="text-sm font-semibold"
+            :class="isTeamMember ? 'text-emerald-700 dark:text-emerald-300' : 'text-primary-700 dark:text-primary-300'"
+          >
+            ${{ displayBalance.toFixed(2) }}
+          </span>
+          <span
+            v-if="isTeamMember"
+            class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:bg-emerald-800/40 dark:text-emerald-300"
+          >
+            {{ t('common.team') }}
           </span>
         </div>
 
@@ -108,10 +120,13 @@
               <!-- Balance (mobile only) -->
               <div class="border-b border-gray-100 px-4 py-2 dark:border-dark-700 sm:hidden">
                 <div class="text-xs text-gray-500 dark:text-dark-400">
-                  {{ t('common.balance') }}
+                  {{ isTeamMember ? t('common.teamBalance') : t('common.balance') }}
                 </div>
-                <div class="text-sm font-semibold text-primary-600 dark:text-primary-400">
-                  ${{ user.balance?.toFixed(2) || '0.00' }}
+                <div
+                  class="text-sm font-semibold"
+                  :class="isTeamMember ? 'text-emerald-600 dark:text-emerald-400' : 'text-primary-600 dark:text-primary-400'"
+                >
+                  ${{ displayBalance.toFixed(2) }}
                 </div>
               </div>
 
@@ -217,6 +232,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore, useAuthStore, useOnboardingStore } from '@/stores'
+import { useTeamStore } from '@/stores/team'
 import { useAdminSettingsStore } from '@/stores/adminSettings'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import SubscriptionProgressMini from '@/components/common/SubscriptionProgressMini.vue'
@@ -228,10 +244,21 @@ const route = useRoute()
 const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
+const teamStore = useTeamStore()
 const adminSettingsStore = useAdminSettingsStore()
 const onboardingStore = useOnboardingStore()
 
 const user = computed(() => authStore.user)
+
+// 团队余额优先：用户是 team_members 表里的付费成员 → widget 显示团队余额；
+// 不是则保持原个人余额。两者只显一个（与后端计费源一致）。
+const isTeamMember = computed(() => !!teamStore.myMembership)
+const displayBalance = computed<number>(() => {
+  if (isTeamMember.value && teamStore.myMembership?.team) {
+    return Number(teamStore.myMembership.team.balance ?? 0)
+  }
+  return Number(user.value?.balance ?? 0)
+})
 const dropdownOpen = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
 const contactInfo = computed(() => appStore.contactInfo)

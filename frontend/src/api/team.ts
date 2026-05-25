@@ -41,6 +41,9 @@ export interface TeamMember {
     username: string
     status: string
   }
+  // 后端 GetMemberByUserID 走 WithTeam edge load，前端可拿到所在团队的余额/名称。
+  // 顶部余额 widget 用它替换个人余额显示。
+  team?: Team
   active_subscriptions?: number
   last_active_at?: string | null
   is_admin?: boolean // computed: this user has a team_admins row for this team

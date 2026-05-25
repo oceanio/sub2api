@@ -30,7 +30,7 @@
         <p class="text-xl font-bold text-green-600">
           ${{ (stats?.total_actual_cost || 0).toFixed(4) }}
         </p>
-        <p class="text-xs text-gray-400">
+        <p v-if="!hideCost" class="text-xs text-gray-400">
           <span class="text-orange-500">{{ t('usage.accountCost') }} ${{ (stats?.total_account_cost || 0).toFixed(4) }}</span>
           <span> · </span>
           <span>{{ t('usage.standardCost') }} ${{ (stats?.total_cost || 0).toFixed(4) }}</span>
@@ -51,7 +51,18 @@ import { useI18n } from 'vue-i18n'
 import type { AdminUsageStatsResponse } from '@/api/admin/usage'
 import Icon from '@/components/icons/Icon.vue'
 
-defineProps<{ stats: AdminUsageStatsResponse | null }>()
+withDefaults(defineProps<{
+  stats: AdminUsageStatsResponse | null
+  /**
+   * Hide the cost breakdown line (account cost + standard cost) on the cost
+   * card. The headline `total_actual_cost` (the fee actually paid) stays
+   * visible — used by team views that want to hide raw cost numbers but still
+   * surface the fee.
+   */
+  hideCost?: boolean
+}>(), {
+  hideCost: false,
+})
 
 const { t } = useI18n()
 
