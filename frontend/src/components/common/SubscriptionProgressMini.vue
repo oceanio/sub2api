@@ -93,7 +93,7 @@
                       }"
                     ></div>
                   </div>
-                  <span class="w-24 flex-shrink-0 text-right text-[10px] text-gray-500">
+                  <span class="w-10 flex-shrink-0 text-right text-[10px] text-gray-500">
                     {{
                       formatUsage(subscription.daily_usage_usd, subscription.group?.daily_limit_usd)
                     }}
@@ -121,7 +121,7 @@
                       }"
                     ></div>
                   </div>
-                  <span class="w-24 flex-shrink-0 text-right text-[10px] text-gray-500">
+                  <span class="w-10 flex-shrink-0 text-right text-[10px] text-gray-500">
                     {{
                       formatUsage(subscription.weekly_usage_usd, subscription.group?.weekly_limit_usd)
                     }}
@@ -149,7 +149,7 @@
                       }"
                     ></div>
                   </div>
-                  <span class="w-24 flex-shrink-0 text-right text-[10px] text-gray-500">
+                  <span class="w-10 flex-shrink-0 text-right text-[10px] text-gray-500">
                     {{
                       formatUsage(
                         subscription.monthly_usage_usd,
@@ -252,9 +252,9 @@ function getProgressWidth(used: number | undefined, limit: number | null | undef
 }
 
 function formatUsage(used: number | undefined, limit: number | null | undefined): string {
-  const usedValue = (used || 0).toFixed(2)
-  const limitValue = limit?.toFixed(2) || '∞'
-  return `$${usedValue}/$${limitValue}`
+  if (!limit || limit === 0) return '0%'
+  const percentage = Math.min(Math.round(((used || 0) / limit) * 100), 100)
+  return `${percentage}%`
 }
 
 function formatDaysRemaining(expiresAt: string): string {

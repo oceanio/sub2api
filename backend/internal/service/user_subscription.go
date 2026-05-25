@@ -69,7 +69,7 @@ func (s *UserSubscription) NeedsDailyResetAt(now time.Time) bool {
 	if s.HasOneTimeDailyQuota() {
 		return false
 	}
-	return !now.Before(s.DailyWindowStart.Add(24 * time.Hour))
+	return !now.Before(s.DailyWindowStart.Add(5 * time.Hour))
 }
 
 func (s *UserSubscription) NeedsWeeklyReset() bool {
@@ -94,7 +94,7 @@ func (s *UserSubscription) DailyResetTime() *time.Time {
 		t := s.ExpiresAt
 		return &t
 	}
-	t := s.DailyWindowStart.Add(24 * time.Hour)
+	t := s.DailyWindowStart.Add(5 * time.Hour)
 	return &t
 }
 
