@@ -377,6 +377,7 @@ func (h *Handler) ListUsage(c *gin.Context) {
 	for i := range records {
 		out = append(out, *dto.UsageLogFromService(&records[i]))
 	}
+	stripUsageLogsCost(out)
 	response.Paginated(c, out, result.Total, page, pageSize)
 }
 
@@ -396,6 +397,7 @@ func (h *Handler) UsageStats(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	stripUsageStatsCost(stats)
 	response.Success(c, stats)
 }
 
@@ -420,6 +422,7 @@ func (h *Handler) UsageTrend(c *gin.Context) {
 		if err != nil {
 			return nil, err
 		}
+		stripTrendCost(trend)
 		return gin.H{"trend": trend}, nil
 	})
 	if err != nil {
@@ -447,6 +450,7 @@ func (h *Handler) UsageModelStats(c *gin.Context) {
 		if err != nil {
 			return nil, err
 		}
+		stripModelStatsCost(stats)
 		return gin.H{"models": stats}, nil
 	})
 	if err != nil {
@@ -473,6 +477,7 @@ func (h *Handler) UsageGroupStats(c *gin.Context) {
 		if err != nil {
 			return nil, err
 		}
+		stripGroupStatsCost(stats)
 		return gin.H{"groups": stats}, nil
 	})
 	if err != nil {
@@ -499,6 +504,8 @@ func (h *Handler) UsageEndpointStats(c *gin.Context) {
 		if err != nil {
 			return nil, err
 		}
+		stripEndpointStatsCost(inbound)
+		stripEndpointStatsCost(paths)
 		return gin.H{
 			"endpoints":      inbound,
 			"endpoint_paths": paths,
@@ -550,6 +557,7 @@ func (h *Handler) UsageUserBreakdown(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	stripUserBreakdownCost(stats)
 	response.Success(c, gin.H{"users": stats})
 }
 
