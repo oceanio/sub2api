@@ -26,6 +26,10 @@ func registerAdminTeamRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		teams.GET("/:id", h.TeamScoped.GetTeam)
 		// 团队×分组 倍率/RPM 覆盖：仅 sys admin。team_admin 路径不挂这个。
 		teams.GET("/:id/group-rates", h.Admin.Team.GetGroupRateConfig)
+		// 团队级专属分组授权：仅 sys admin。
+		teams.GET("/:id/allowed-groups", h.Admin.Team.GetTeamAllowedGroups)
+		teams.POST("/:id/allowed-groups", h.Admin.Team.AddTeamAllowedGroup)
+		teams.DELETE("/:id/allowed-groups/:groupID", h.Admin.Team.RemoveTeamAllowedGroup)
 
 		// Shared team-scoped endpoints: implementation lives in TeamScoped and
 		// is shared with /team/:teamId/* (see routes/team.go).

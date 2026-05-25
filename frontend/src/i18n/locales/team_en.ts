@@ -162,6 +162,7 @@ export const teamMessages = {
       defaultRpm: 'Default RPM',
       teamRpm: 'Team RPM',
       defaultShort: 'default',
+      exclusiveAccess: 'Exclusive access',
     },
     filter: {
       all: 'All groups',
@@ -174,10 +175,16 @@ export const teamMessages = {
     discountSuffix: 'discount',
     noGroups: 'No groups available',
     hint: 'Priority: user override > team override > group default. RPM = 0 exempts team members from the per-group RPM check (user-level cap still applies).',
+    exclusive: {
+      authorized: 'Authorized',
+      notAuthorized: 'Not authorized',
+    },
     actions: {
       setRate: 'Set rate',
       setRpm: 'Set RPM',
       clear: 'Clear',
+      authorize: 'Authorize',
+      revoke: 'Revoke',
     },
     dialog: {
       rateTitle: 'Set team-specific rate',

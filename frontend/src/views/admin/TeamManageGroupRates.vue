@@ -102,6 +102,20 @@
             </div>
           </template>
 
+          <template #cell-exclusive="{ row }">
+            <div v-if="row.isExclusive" class="flex items-center gap-1.5">
+              <span
+                v-if="row.isAuthorized"
+                class="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+              >
+                <Icon name="check" size="xs" />
+                {{ t('team.groupRates.exclusive.authorized') }}
+              </span>
+              <span v-else class="text-xs text-gray-400">{{ t('team.groupRates.exclusive.notAuthorized') }}</span>
+            </div>
+            <span v-else class="text-xs text-gray-300 dark:text-dark-600">—</span>
+          </template>
+
           <template #cell-actions="{ row }">
             <div class="flex items-center gap-1">
               <button
@@ -129,6 +143,28 @@
                 <Icon name="trash" size="sm" />
                 <span class="text-xs">{{ t('team.groupRates.actions.clear') }}</span>
               </button>
+              <template v-if="row.isExclusive">
+                <button
+                  v-if="!row.isAuthorized"
+                  @click="authorizeGroup(row)"
+                  :disabled="saving"
+                  class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-400"
+                  :title="t('team.groupRates.actions.authorize')"
+                >
+                  <Icon name="check" size="sm" />
+                  <span class="text-xs">{{ t('team.groupRates.actions.authorize') }}</span>
+                </button>
+                <button
+                  v-else
+                  @click="revokeGroup(row)"
+                  :disabled="saving"
+                  class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+                  :title="t('team.groupRates.actions.revoke')"
+                >
+                  <Icon name="x" size="sm" />
+                  <span class="text-xs">{{ t('team.groupRates.actions.revoke') }}</span>
+                </button>
+              </template>
             </div>
           </template>
 
@@ -261,6 +297,8 @@ interface Row {
   defaultRpm: number
   teamRate: number | null
   teamRpm: number | null
+  isExclusive: boolean
+  isAuthorized: boolean
 }
 
 const { t } = useI18n()
@@ -312,6 +350,7 @@ const columns = computed<Column[]>(() => [
   { key: 'platform', label: t('admin.groups.form.platform'), sortable: false },
   { key: 'rate', label: t('team.groupRates.col.teamRate'), sortable: false },
   { key: 'rpm', label: t('team.groupRates.col.teamRpm'), sortable: false },
+  { key: 'exclusive', label: t('team.groupRates.col.exclusiveAccess'), sortable: false },
   { key: 'actions', label: t('common.actions'), sortable: false },
 ])
 
@@ -342,10 +381,12 @@ const filteredRows = computed(() => {
 async function reload() {
   loading.value = true
   try {
-    const [groupsRes, ratesRes] = await Promise.all([
+    const [groupsRes, ratesRes, allowedGroupIDs] = await Promise.all([
       adminAPI.groups.list(1, 1000),
       teamAPI.adminGetTeamGroupRates(teamId.value),
+      teamAPI.adminGetTeamAllowedGroups(teamId.value),
     ])
+    const authorizedSet = new Set(allowedGroupIDs)
     const groups: Group[] = (groupsRes.items ?? []).filter(g => g.status === 'active')
     rows.value = groups.map(g => ({
       groupId: g.id,
@@ -355,6 +396,8 @@ async function reload() {
       defaultRpm: g.rpm_limit ?? 0,
       teamRate: ratesRes.group_rates[g.id] ?? null,
       teamRpm: ratesRes.group_rpm_overrides[g.id] ?? null,
+      isExclusive: g.is_exclusive ?? false,
+      isAuthorized: authorizedSet.has(g.id),
     }))
   } catch (e: any) {
     appStore.showError(e?.message ?? 'Failed to load group rates')
@@ -471,6 +514,32 @@ async function performClear() {
     await reload()
   } catch (e: any) {
     appStore.showError(e?.message ?? 'Failed')
+  }
+}
+
+async function authorizeGroup(row: Row) {
+  saving.value = true
+  try {
+    await teamAPI.adminAddTeamAllowedGroup(teamId.value, row.groupId)
+    appStore.showSuccess(t('common.saved'))
+    await reload()
+  } catch (e: any) {
+    appStore.showError(e?.message ?? 'Failed')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function revokeGroup(row: Row) {
+  saving.value = true
+  try {
+    await teamAPI.adminRemoveTeamAllowedGroup(teamId.value, row.groupId)
+    appStore.showSuccess(t('common.saved'))
+    await reload()
+  } catch (e: any) {
+    appStore.showError(e?.message ?? 'Failed')
+  } finally {
+    saving.value = false
   }
 }
 

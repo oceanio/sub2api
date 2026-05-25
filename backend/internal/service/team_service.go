@@ -26,19 +26,20 @@ type TeamUsageRepository interface {
 
 // TeamService handles all team management operations.
 type TeamService struct {
-	teamRepo             TeamRepository
-	memberRepo           TeamMemberRepository
-	adminRepo            TeamAdminRepository
-	balanceLogRepo       TeamBalanceLogRepository
-	userRepo             UserRepository
-	apiKeyRepo           APIKeyRepository
-	userSubRepo          UserSubscriptionRepository
-	subService           *SubscriptionService
-	paymentConfigService *PaymentConfigService
-	teamUsageRepo        TeamUsageRepository
-	teamGroupRateRepo    TeamGroupRateRepository
-	authCacheInvalidator APIKeyAuthCacheInvalidator
-	entClient            *dbent.Client
+	teamRepo              TeamRepository
+	memberRepo            TeamMemberRepository
+	adminRepo             TeamAdminRepository
+	balanceLogRepo        TeamBalanceLogRepository
+	userRepo              UserRepository
+	apiKeyRepo            APIKeyRepository
+	userSubRepo           UserSubscriptionRepository
+	subService            *SubscriptionService
+	paymentConfigService  *PaymentConfigService
+	teamUsageRepo         TeamUsageRepository
+	teamGroupRateRepo     TeamGroupRateRepository
+	teamAllowedGroupRepo  TeamAllowedGroupRepository
+	authCacheInvalidator  APIKeyAuthCacheInvalidator
+	entClient             *dbent.Client
 }
 
 func NewTeamService(
@@ -1145,4 +1146,33 @@ func (s *TeamService) requireSubscriptionsEnabled(ctx context.Context, teamID in
 		return ErrTeamSubscriptionsDisabled
 	}
 	return nil
+}
+
+// SetTeamAllowedGroupRepository injects the optional repo for team-level exclusive group authorization.
+func (s *TeamService) SetTeamAllowedGroupRepository(repo TeamAllowedGroupRepository) {
+	s.teamAllowedGroupRepo = repo
+}
+
+// GetTeamAllowedGroups returns the group IDs authorized for the team.
+func (s *TeamService) GetTeamAllowedGroups(ctx context.Context, teamID int64) ([]int64, error) {
+	if s.teamAllowedGroupRepo == nil {
+		return []int64{}, nil
+	}
+	return s.teamAllowedGroupRepo.ListByTeamID(ctx, teamID)
+}
+
+// AddTeamAllowedGroup authorizes an exclusive group for all members of a team.
+func (s *TeamService) AddTeamAllowedGroup(ctx context.Context, teamID, groupID int64) error {
+	if s.teamAllowedGroupRepo == nil {
+		return nil
+	}
+	return s.teamAllowedGroupRepo.Add(ctx, teamID, groupID)
+}
+
+// RemoveTeamAllowedGroup revokes an exclusive group's authorization from a team.
+func (s *TeamService) RemoveTeamAllowedGroup(ctx context.Context, teamID, groupID int64) error {
+	if s.teamAllowedGroupRepo == nil {
+		return nil
+	}
+	return s.teamAllowedGroupRepo.Remove(ctx, teamID, groupID)
 }

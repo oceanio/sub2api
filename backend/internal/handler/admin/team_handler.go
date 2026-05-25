@@ -208,6 +208,69 @@ func (h *AdminTeamHandler) RefundTeam(c *gin.Context) {
 	response.Success(c, team)
 }
 
+// GetTeamAllowedGroups GET /api/v1/admin/teams/:id/allowed-groups
+// 返回该团队已授权的专属分组 ID 列表。
+func (h *AdminTeamHandler) GetTeamAllowedGroups(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "invalid team id")
+		return
+	}
+	groupIDs, err := h.teamService.GetTeamAllowedGroups(c.Request.Context(), id)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if groupIDs == nil {
+		groupIDs = []int64{}
+	}
+	response.Success(c, gin.H{"group_ids": groupIDs})
+}
+
+type addTeamAllowedGroupRequest struct {
+	GroupID int64 `json:"group_id" binding:"required"`
+}
+
+// AddTeamAllowedGroup POST /api/v1/admin/teams/:id/allowed-groups
+// 为团队授权一个专属分组。
+func (h *AdminTeamHandler) AddTeamAllowedGroup(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "invalid team id")
+		return
+	}
+	var req addTeamAllowedGroupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	if err := h.teamService.AddTeamAllowedGroup(c.Request.Context(), id, req.GroupID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"message": "group authorized"})
+}
+
+// RemoveTeamAllowedGroup DELETE /api/v1/admin/teams/:id/allowed-groups/:groupID
+// 撤销团队对某专属分组的授权。
+func (h *AdminTeamHandler) RemoveTeamAllowedGroup(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "invalid team id")
+		return
+	}
+	groupID, err := strconv.ParseInt(c.Param("groupID"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "invalid group id")
+		return
+	}
+	if err := h.teamService.RemoveTeamAllowedGroup(c.Request.Context(), id, groupID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"message": "group authorization revoked"})
+}
+
 // AddMember POST /api/v1/admin/teams/:id/members
 // Adds an existing user as a paying team member (sys admin only).
 // team_admin uses POST /team/:teamId/members to create a NEW user and add.

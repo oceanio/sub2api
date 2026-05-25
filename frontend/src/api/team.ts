@@ -560,6 +560,22 @@ export async function adminGetTeamGroupRates(id: number): Promise<{
   return data
 }
 
+/** GET /api/v1/admin/teams/:id/allowed-groups  返回团队已授权的专属分组 ID 列表。*/
+export async function adminGetTeamAllowedGroups(id: number): Promise<number[]> {
+  const { data } = await apiClient.get<{ group_ids: number[] }>(`/admin/teams/${id}/allowed-groups`)
+  return data.group_ids ?? []
+}
+
+/** POST /api/v1/admin/teams/:id/allowed-groups  为团队授权一个专属分组。*/
+export async function adminAddTeamAllowedGroup(id: number, groupId: number): Promise<void> {
+  await apiClient.post(`/admin/teams/${id}/allowed-groups`, { group_id: groupId })
+}
+
+/** DELETE /api/v1/admin/teams/:id/allowed-groups/:groupID  撤销团队对某专属分组的授权。*/
+export async function adminRemoveTeamAllowedGroup(id: number, groupId: number): Promise<void> {
+  await apiClient.delete(`/admin/teams/${id}/allowed-groups/${groupId}`)
+}
+
 export async function adminDeleteTeam(id: number): Promise<void> {
   await apiClient.delete(`/admin/teams/${id}`)
 }
@@ -616,4 +632,7 @@ export const teamAPI = {
   adminRechargeTeam,
   adminRefundTeam,
   adminGetTeamGroupRates,
+  adminGetTeamAllowedGroups,
+  adminAddTeamAllowedGroup,
+  adminRemoveTeamAllowedGroup,
 }

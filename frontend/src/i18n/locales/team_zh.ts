@@ -162,6 +162,7 @@ export const teamMessages = {
       defaultRpm: '默认 RPM',
       teamRpm: '团队 RPM',
       defaultShort: '默认',
+      exclusiveAccess: '专属授权',
     },
     filter: {
       all: '全部分组',
@@ -174,10 +175,16 @@ export const teamMessages = {
     discountSuffix: '折扣',
     noGroups: '暂无可配置的分组',
     hint: '优先级：用户专属 > 团队专属 > 分组默认。RPM 设为 0 表示团队成员在该分组免限流（用户级全局上限仍生效）。',
+    exclusive: {
+      authorized: '已授权',
+      notAuthorized: '未授权',
+    },
     actions: {
       setRate: '专属倍率',
       setRpm: '专属 RPM',
       clear: '清除覆盖',
+      authorize: '授权',
+      revoke: '撤销',
     },
     dialog: {
       rateTitle: '设置团队专属倍率',

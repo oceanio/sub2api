@@ -203,22 +203,23 @@ type RateLimitCacheInvalidator interface {
 }
 
 type APIKeyService struct {
-	apiKeyRepo            APIKeyRepository
-	userRepo              UserRepository
-	groupRepo             GroupRepository
-	userSubRepo           UserSubscriptionRepository
-	userGroupRateRepo     UserGroupRateRepository
-	teamGroupRateRepo     TeamGroupRateRepository // optional: for team-group RPM snapshot population
-	cache                 APIKeyCache
-	rateLimitCacheInvalid RateLimitCacheInvalidator // optional: invalidate Redis rate limit cache
-	entClient             *dbent.Client             // optional: for batched transactional ops (bulk import)
-	teamMemberRepo        TeamMemberRepository      // optional: for team billing in auth snapshot
-	cfg                   *config.Config
-	authCacheL1           *ristretto.Cache
-	authCfg               apiKeyAuthCacheConfig
-	authGroup             singleflight.Group
-	lastUsedTouchL1       sync.Map // keyID -> nextAllowedAt(time.Time)
-	lastUsedTouchSF       singleflight.Group
+	apiKeyRepo              APIKeyRepository
+	userRepo                UserRepository
+	groupRepo               GroupRepository
+	userSubRepo             UserSubscriptionRepository
+	userGroupRateRepo       UserGroupRateRepository
+	teamGroupRateRepo       TeamGroupRateRepository     // optional: for team-group RPM snapshot population
+	teamAllowedGroupRepo    TeamAllowedGroupRepository  // optional: for team-level exclusive group access check
+	cache                   APIKeyCache
+	rateLimitCacheInvalid   RateLimitCacheInvalidator // optional: invalidate Redis rate limit cache
+	entClient               *dbent.Client             // optional: for batched transactional ops (bulk import)
+	teamMemberRepo          TeamMemberRepository      // optional: for team billing in auth snapshot
+	cfg                     *config.Config
+	authCacheL1             *ristretto.Cache
+	authCfg                 apiKeyAuthCacheConfig
+	authGroup               singleflight.Group
+	lastUsedTouchL1         sync.Map // keyID -> nextAllowedAt(time.Time)
+	lastUsedTouchSF         singleflight.Group
 }
 
 // NewAPIKeyService 创建API Key服务实例
@@ -265,6 +266,12 @@ func (s *APIKeyService) SetTeamMemberRepository(repo TeamMemberRepository) {
 // a team override and checkRPM falls through to group / user defaults.
 func (s *APIKeyService) SetTeamGroupRateRepository(repo TeamGroupRateRepository) {
 	s.teamGroupRateRepo = repo
+}
+
+// SetTeamAllowedGroupRepository injects the repo for team-level exclusive group
+// authorization checks. Optional; if nil, only user-level AllowedGroups is used.
+func (s *APIKeyService) SetTeamAllowedGroupRepository(repo TeamAllowedGroupRepository) {
+	s.teamAllowedGroupRepo = repo
 }
 
 func (s *APIKeyService) compileAPIKeyIPRules(apiKey *APIKey) {
@@ -344,15 +351,28 @@ func (s *APIKeyService) incrementAPIKeyErrorCount(ctx context.Context, userID in
 
 // canUserBindGroup 检查用户是否可以绑定指定分组
 // 对于订阅类型分组：检查用户是否有有效订阅
-// 对于标准类型分组：使用原有的 AllowedGroups 和 IsExclusive 逻辑
+// 对于标准类型分组：使用原有的 AllowedGroups 和 IsExclusive 逻辑，并兼容 team-level 授权
 func (s *APIKeyService) canUserBindGroup(ctx context.Context, user *User, group *Group) bool {
 	// 订阅类型分组：需要有效订阅
 	if group.IsSubscriptionType() {
 		_, err := s.userSubRepo.GetActiveByUserIDAndGroupID(ctx, user.ID, group.ID)
 		return err == nil // 有有效订阅则允许
 	}
-	// 标准类型分组：使用原有逻辑
-	return user.CanBindGroup(group.ID, group.IsExclusive)
+	// 标准类型分组：先检查用户个人权限
+	if user.CanBindGroup(group.ID, group.IsExclusive) {
+		return true
+	}
+	// 专属分组：用户个人未授权，再检查其所在团队是否授权了该分组
+	if group.IsExclusive && s.teamMemberRepo != nil && s.teamAllowedGroupRepo != nil {
+		membership, err := s.teamMemberRepo.GetByUserID(ctx, user.ID)
+		if err == nil && membership != nil {
+			allowed, err := s.teamAllowedGroupRepo.ExistsForTeam(ctx, membership.TeamID, group.ID)
+			if err == nil && allowed {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Create 创建API Key
