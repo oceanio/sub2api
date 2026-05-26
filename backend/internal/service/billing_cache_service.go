@@ -105,7 +105,7 @@ type BillingCacheService struct {
 	apiKeyRateLimitLoader apiKeyRateLimitLoader
 	userRPMCache          UserRPMCache
 	userGroupRateRepo     UserGroupRateRepository
-	teamRepo              TeamRepository // optional; set via SetTeamRepository for team billing preflight
+	teamRepo              TeamRepository // injected via constructor; nil makes team-balance preflight a no-op
 	cfg                   *config.Config
 	circuitBreaker        *billingCircuitBreaker
 	userPlatformQuotaRepo UserPlatformQuotaRepository
@@ -134,6 +134,7 @@ func NewBillingCacheService(
 	userGroupRateRepo UserGroupRateRepository,
 	cfg *config.Config,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
+	teamRepo TeamRepository,
 ) *BillingCacheService {
 	svc := &BillingCacheService{
 		cache:                 cache,
@@ -144,17 +145,11 @@ func NewBillingCacheService(
 		userGroupRateRepo:     userGroupRateRepo,
 		cfg:                   cfg,
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
+		teamRepo:              teamRepo,
 	}
 	svc.circuitBreaker = newBillingCircuitBreaker(cfg.Billing.CircuitBreaker)
 	svc.startCacheWriteWorkers()
 	return svc
-}
-
-// SetTeamRepository wires the team repository for team-balance preflight.
-// Optional dependency: nil means team key requests bypass the balance preflight
-// (deduct-after-fact still applies; next request will be rejected on negative balance).
-func (s *BillingCacheService) SetTeamRepository(repo TeamRepository) {
-	s.teamRepo = repo
 }
 
 // Stop 关闭缓存写入工作池
