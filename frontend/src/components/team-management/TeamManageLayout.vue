@@ -14,6 +14,16 @@
           {{ t('team.overview.balance') }}：
           <span class="font-mono font-medium text-emerald-600">${{ Number(team.balance).toFixed(2) }}</span>
         </span>
+        <button
+          v-if="team"
+          type="button"
+          class="text-gray-400 hover:text-emerald-600 disabled:opacity-50"
+          :disabled="refreshing"
+          :title="t('common.refresh')"
+          @click="onRefreshBalance"
+        >
+          <Icon name="refresh" size="sm" :class="refreshing ? 'animate-spin' : ''" />
+        </button>
       </div>
 
       <div class="flex flex-wrap gap-2 border-b border-gray-200 dark:border-dark-700">
@@ -42,6 +52,7 @@ import { useTeamStore } from '@/stores/team'
 import { teamAPI, type Team } from '@/api/team'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TeamSelector from '@/components/team-management/TeamSelector.vue'
+import Icon from '@/components/icons/Icon.vue'
 
 type Source = 'admin' | 'team_admin'
 
@@ -68,6 +79,7 @@ function onTeamChange(newID: number) {
 }
 
 const team = ref<Team | null>(null)
+const refreshing = ref(false)
 
 const tabs = computed(() => {
   const base = `${basePath.value}/${props.teamId}`
@@ -126,6 +138,19 @@ provide('refreshTeam', () => {
   }
   loadTeam(true)
 })
+
+async function onRefreshBalance() {
+  if (refreshing.value) return
+  refreshing.value = true
+  try {
+    if (props.source === 'admin') {
+      teamStore.invalidateAdminTeam(props.teamId)
+    }
+    await loadTeam(true)
+  } finally {
+    refreshing.value = false
+  }
+}
 
 watch(() => props.teamId, (id) => {
   if (!id) return
