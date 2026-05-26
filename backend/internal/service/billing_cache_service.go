@@ -740,8 +740,12 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 		}
 	}
 
-	// user × platform quota 仅在 standard（余额）模式生效；订阅模式豁免
-	if !isSubscriptionMode {
+	// user × platform quota 仅在 standard（余额）模式生效；订阅模式豁免。
+	// Team key 同样豁免：team key 的消费走团队池（checkTeamBillingEligibility 已覆盖），
+	// 不应再扣到 key 持有人的个人 platform quota 头上——否则团队请求会拉爆持有人
+	// 的个人窗口用量，导致明明没在个人侧消费却被限流。
+	isTeamKey := apiKey != nil && apiKey.TeamID != nil
+	if !isSubscriptionMode && !isTeamKey {
 		if err := s.checkUserPlatformQuotaEligibility(ctx, user.ID, platform); err != nil {
 			return err
 		}

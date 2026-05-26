@@ -8220,13 +8220,15 @@ func postUsageBilling(ctx context.Context, p *postUsageBillingParams, deps *bill
 
 	// Platform quota DB-only 累加（与 finalizePostUsageBilling 行为对齐的兜底）：
 	//   - 仅对 standard（余额）模式生效；订阅模式豁免
+	//   - team key 同样豁免：team key 消费走团队池，不应累加到 key 持有人的个人 quota
 	//   - 直接走 DB，不经 Redis Incr 队列：legacy 路径在 repo==nil（仓库未注入）
 	//     时被触发，此时整套 billing repo 都不可用，没有"双队列"风险
 	//   - 失败仅记 ALERT log + counter，不阻断主扣费流程；与正常路径一致
 	//
 	// 历史背景：原 legacy path 完全跳过此累加，导致部署中如果 repo 偶然为 nil
 	// 时用户消费可绕过 platform quota，存在静默资金风险。
-	if !p.IsSubscriptionBill && p.Platform != "" && cost.ActualCost > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil {
+	isTeamKeyLegacy := p.APIKey != nil && p.APIKey.TeamID != nil
+	if !p.IsSubscriptionBill && !isTeamKeyLegacy && p.Platform != "" && cost.ActualCost > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil {
 		if err := deps.userPlatformQuotaRepo.IncrementUsageWithReset(billingCtx, p.User.ID, p.Platform, cost.ActualCost, time.Now().UTC()); err != nil {
 			userPlatformQuotaDBIncrLegacyErrorTotal.Add(1)
 			logger.LegacyPrintf("service.gateway", "ALERT: legacy incr user platform quota DB failed user=%d platform=%s cost=%f: %v", p.User.ID, p.Platform, cost.ActualCost, err)
@@ -8393,7 +8395,7 @@ func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, de
 	//   - Redis 同步:确保下次 preflight 立即看到最新 usage,把 TOCTOU 超支窗口
 	//     限制在并发 in-flight 请求数量内（旧实现的异步入队会让超支无限累积直到 worker 处理）
 	//   - DB 异步:在独立 goroutine 中走 detached context,失败用 ALERT log 触发 oncall 对账
-	if !p.IsSubscriptionBill && p.Platform != "" && p.Cost.ActualCost > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil {
+	if !p.IsSubscriptionBill && (p.APIKey == nil || p.APIKey.TeamID == nil) && p.Platform != "" && p.Cost.ActualCost > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil {
 		deps.billingCacheService.IncrementUserPlatformQuotaUsage(p.User.ID, p.Platform, p.Cost.ActualCost)
 		dbCtx, dbCancel := detachUpstreamContext(ctx)
 		userID, platform, cost := p.User.ID, p.Platform, p.Cost.ActualCost
