@@ -101,26 +101,35 @@
         </template>
         <template #cell-usage="{ row }">
           <div class="min-w-[260px] space-y-2">
-            <div v-if="row.group?.daily_limit_usd" class="flex items-center gap-2 text-xs">
-              <span class="w-8 shrink-0 text-gray-500">{{ t('admin.subscriptions.daily') }}</span>
-              <div class="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
-                <div class="h-1.5 rounded-full transition-all" :class="getProgressClass(row.daily_usage_usd, row.group?.daily_limit_usd)" :style="{ width: getProgressWidth(row.daily_usage_usd, row.group?.daily_limit_usd) }"></div>
+            <div v-if="row.group?.daily_limit_usd" class="space-y-0.5">
+              <div class="flex items-center gap-2 text-xs">
+                <span class="w-8 shrink-0 text-gray-500">{{ t('admin.subscriptions.daily') }}</span>
+                <div class="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
+                  <div class="h-1.5 rounded-full transition-all" :class="getProgressClass(row.daily_usage_usd, row.group?.daily_limit_usd)" :style="{ width: getProgressWidth(row.daily_usage_usd, row.group?.daily_limit_usd) }"></div>
+                </div>
+                <span class="font-mono whitespace-nowrap">{{ getProgressPercentage(row.daily_usage_usd, row.group?.daily_limit_usd) }}</span>
               </div>
-              <span class="font-mono whitespace-nowrap">${{ Number(row.daily_usage_usd ?? 0).toFixed(2) }}<span class="text-gray-400">/</span>${{ Number(row.group?.daily_limit_usd).toFixed(2) }}</span>
+              <div class="pl-10 text-[10px] text-gray-400 dark:text-dark-500">{{ formatDailyUsageWindow(row) }}</div>
             </div>
-            <div v-if="row.group?.weekly_limit_usd" class="flex items-center gap-2 text-xs">
-              <span class="w-8 shrink-0 text-gray-500">{{ t('admin.subscriptions.weekly') }}</span>
-              <div class="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
-                <div class="h-1.5 rounded-full transition-all" :class="getProgressClass(row.weekly_usage_usd, row.group?.weekly_limit_usd)" :style="{ width: getProgressWidth(row.weekly_usage_usd, row.group?.weekly_limit_usd) }"></div>
+            <div v-if="row.group?.weekly_limit_usd" class="space-y-0.5">
+              <div class="flex items-center gap-2 text-xs">
+                <span class="w-8 shrink-0 text-gray-500">{{ t('admin.subscriptions.weekly') }}</span>
+                <div class="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
+                  <div class="h-1.5 rounded-full transition-all" :class="getProgressClass(row.weekly_usage_usd, row.group?.weekly_limit_usd)" :style="{ width: getProgressWidth(row.weekly_usage_usd, row.group?.weekly_limit_usd) }"></div>
+                </div>
+                <span class="font-mono whitespace-nowrap">{{ getProgressPercentage(row.weekly_usage_usd, row.group?.weekly_limit_usd) }}</span>
               </div>
-              <span class="font-mono whitespace-nowrap">${{ Number(row.weekly_usage_usd ?? 0).toFixed(2) }}<span class="text-gray-400">/</span>${{ Number(row.group?.weekly_limit_usd).toFixed(2) }}</span>
+              <div class="pl-10 text-[10px] text-gray-400 dark:text-dark-500">{{ formatResetTime(row.weekly_window_start, 'weekly') }}</div>
             </div>
-            <div v-if="row.group?.monthly_limit_usd" class="flex items-center gap-2 text-xs">
-              <span class="w-8 shrink-0 text-gray-500">{{ t('admin.subscriptions.monthly') }}</span>
-              <div class="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
-                <div class="h-1.5 rounded-full transition-all" :class="getProgressClass(row.monthly_usage_usd, row.group?.monthly_limit_usd)" :style="{ width: getProgressWidth(row.monthly_usage_usd, row.group?.monthly_limit_usd) }"></div>
+            <div v-if="row.group?.monthly_limit_usd" class="space-y-0.5">
+              <div class="flex items-center gap-2 text-xs">
+                <span class="w-8 shrink-0 text-gray-500">{{ t('admin.subscriptions.monthly') }}</span>
+                <div class="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
+                  <div class="h-1.5 rounded-full transition-all" :class="getProgressClass(row.monthly_usage_usd, row.group?.monthly_limit_usd)" :style="{ width: getProgressWidth(row.monthly_usage_usd, row.group?.monthly_limit_usd) }"></div>
+                </div>
+                <span class="font-mono whitespace-nowrap">{{ getProgressPercentage(row.monthly_usage_usd, row.group?.monthly_limit_usd) }}</span>
               </div>
-              <span class="font-mono whitespace-nowrap">${{ Number(row.monthly_usage_usd ?? 0).toFixed(2) }}<span class="text-gray-400">/</span>${{ Number(row.group?.monthly_limit_usd).toFixed(2) }}</span>
+              <div class="pl-10 text-[10px] text-gray-400 dark:text-dark-500">{{ formatResetTime(row.monthly_window_start, 'monthly') }}</div>
             </div>
             <div
               v-if="!row.group?.daily_limit_usd && !row.group?.weekly_limit_usd && !row.group?.monthly_limit_usd"
@@ -245,6 +254,7 @@ import { computed, inject, onMounted, onUnmounted, reactive, ref, watch } from '
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { teamAPI, type TeamSubscription, type TeamMember, type Team, type SubscriptionPlan } from '@/api/team'
+import { getRemainingDurationParts, isOneTimeDailyQuota, type RemainingDurationParts } from '@/utils/subscriptionQuota'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -381,6 +391,48 @@ function getProgressWidth(used: number | null | undefined, limit: number | null 
   const l = Number(limit ?? 0)
   if (l <= 0) return '0%'
   return `${Math.min((Number(used ?? 0) / l) * 100, 100)}%`
+}
+
+function getProgressPercentage(used: number | null | undefined, limit: number | null | undefined): string {
+  const l = Number(limit ?? 0)
+  if (l <= 0) return '0%'
+  return `${Math.min(Math.round((Number(used ?? 0) / l) * 100), 100)}%`
+}
+
+function formatResetDuration(parts: RemainingDurationParts): string {
+  if (parts.days > 0) {
+    return t('admin.subscriptions.resetInDaysHours', { days: parts.days, hours: parts.hours })
+  }
+  if (parts.hours > 0) {
+    return t('admin.subscriptions.resetInHoursMinutes', { hours: parts.hours, minutes: parts.minutes })
+  }
+  return t('admin.subscriptions.resetInMinutes', { minutes: parts.minutes })
+}
+
+function formatQuotaEndDuration(parts: RemainingDurationParts): string {
+  if (parts.days > 0) {
+    return t('admin.subscriptions.quotaEndsInDaysHours', { days: parts.days, hours: parts.hours })
+  }
+  if (parts.hours > 0) {
+    return t('admin.subscriptions.quotaEndsInHoursMinutes', { hours: parts.hours, minutes: parts.minutes })
+  }
+  return t('admin.subscriptions.quotaEndsInMinutes', { minutes: parts.minutes })
+}
+
+function formatResetTime(windowStart: string | null | undefined, period: 'daily' | 'weekly' | 'monthly'): string {
+  if (!windowStart) return t('admin.subscriptions.windowNotActive')
+  const hours = period === 'daily' ? 5 : period === 'weekly' ? 168 : 720
+  const end = new Date(new Date(windowStart).getTime() + hours * 60 * 60 * 1000)
+  const parts = getRemainingDurationParts(end)
+  return parts ? formatResetDuration(parts) : t('admin.subscriptions.windowNotActive')
+}
+
+function formatDailyUsageWindow(row: TeamSubscription): string {
+  if (isOneTimeDailyQuota(row) && row.expires_at) {
+    const parts = getRemainingDurationParts(row.expires_at)
+    return parts ? formatQuotaEndDuration(parts) : t('admin.subscriptions.windowNotActive')
+  }
+  return formatResetTime(row.daily_window_start, 'daily')
 }
 
 function getProgressClass(used: number | null | undefined, limit: number | null | undefined): string {

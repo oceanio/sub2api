@@ -115,15 +115,30 @@ func (r *userSubscriptionRepository) Update(ctx context.Context, sub *service.Us
 		SetStartsAt(sub.StartsAt).
 		SetExpiresAt(sub.ExpiresAt).
 		SetStatus(sub.Status).
-		SetNillableDailyWindowStart(sub.DailyWindowStart).
-		SetNillableWeeklyWindowStart(sub.WeeklyWindowStart).
-		SetNillableMonthlyWindowStart(sub.MonthlyWindowStart).
 		SetDailyUsageUsd(sub.DailyUsageUSD).
 		SetWeeklyUsageUsd(sub.WeeklyUsageUSD).
 		SetMonthlyUsageUsd(sub.MonthlyUsageUSD).
 		SetNillableAssignedBy(sub.AssignedBy).
 		SetAssignedAt(sub.AssignedAt).
 		SetNotes(sub.Notes)
+
+	// 窗口起点用 *time.Time 表示「窗口未激活」：nil = 清空，非 nil = 写入。
+	// 续费时 nil 让 CheckAndActivateWindow 在首次发消息时锚定，符合 Anthropic 5h 语义。
+	if sub.DailyWindowStart != nil {
+		builder.SetDailyWindowStart(*sub.DailyWindowStart)
+	} else {
+		builder.ClearDailyWindowStart()
+	}
+	if sub.WeeklyWindowStart != nil {
+		builder.SetWeeklyWindowStart(*sub.WeeklyWindowStart)
+	} else {
+		builder.ClearWeeklyWindowStart()
+	}
+	if sub.MonthlyWindowStart != nil {
+		builder.SetMonthlyWindowStart(*sub.MonthlyWindowStart)
+	} else {
+		builder.ClearMonthlyWindowStart()
+	}
 
 	updated, err := builder.Save(ctx)
 	if err == nil {

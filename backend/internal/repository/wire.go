@@ -102,6 +102,9 @@ var ProviderSet = wire.NewSet(
 	NewTeamMemberRepository,
 	NewTeamAdminRepository,
 	NewTeamBalanceLogRepository,
+	NewTeamGroupRateRepository,
+	NewTeamAllowedGroupRepository,
+	NewTeamUsageRepository,
 
 	// Cache implementations
 	NewGatewayCache,

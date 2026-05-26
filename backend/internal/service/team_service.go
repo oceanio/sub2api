@@ -54,6 +54,7 @@ func NewTeamService(
 	paymentConfigService *PaymentConfigService,
 	teamUsageRepo TeamUsageRepository,
 	teamGroupRateRepo TeamGroupRateRepository,
+	teamAllowedGroupRepo TeamAllowedGroupRepository,
 	authCacheInvalidator APIKeyAuthCacheInvalidator,
 	entClient *dbent.Client,
 ) *TeamService {
@@ -69,6 +70,7 @@ func NewTeamService(
 		paymentConfigService: paymentConfigService,
 		teamUsageRepo:        teamUsageRepo,
 		teamGroupRateRepo:    teamGroupRateRepo,
+		teamAllowedGroupRepo: teamAllowedGroupRepo,
 		authCacheInvalidator: authCacheInvalidator,
 		entClient:            entClient,
 	}

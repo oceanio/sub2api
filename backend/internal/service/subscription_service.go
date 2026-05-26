@@ -314,13 +314,23 @@ func (s *SubscriptionService) withSubscriptionUpdateTx(ctx context.Context, fn f
 
 func renewedSubscriptionTerm(existingSub *UserSubscription, notes string, startsAt, expiresAt time.Time) *UserSubscription {
 	renewed := *existingSub
-	windowStart := startOfDay(startsAt)
 	renewed.StartsAt = startsAt
 	renewed.ExpiresAt = expiresAt
 	renewed.Status = SubscriptionStatusActive
-	renewed.DailyWindowStart = &windowStart
-	renewed.WeeklyWindowStart = &windowStart
-	renewed.MonthlyWindowStart = &windowStart
+	if renewed.HasOneTimeDailyQuota() {
+		// 日卡：一次性配额，reset 判定走 HasOneTimeDailyQuota 短路；
+		// 窗口起点保留 startOfDay 锚点供进度展示使用。
+		windowStart := startOfDay(startsAt)
+		renewed.DailyWindowStart = &windowStart
+		renewed.WeeklyWindowStart = &windowStart
+		renewed.MonthlyWindowStart = &windowStart
+	} else {
+		// 多日订阅：续费后窗口未激活，等首次发消息时由 CheckAndActivateWindow
+		// 锚定，与 Anthropic 5h rolling 语义对齐。
+		renewed.DailyWindowStart = nil
+		renewed.WeeklyWindowStart = nil
+		renewed.MonthlyWindowStart = nil
+	}
 	renewed.DailyUsageUSD = 0
 	renewed.WeeklyUsageUSD = 0
 	renewed.MonthlyUsageUSD = 0

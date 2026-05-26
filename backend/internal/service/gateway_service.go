@@ -40,6 +40,7 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 const (
@@ -9084,18 +9085,23 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 		s.recordCountTokensSupport(account.ID, false)
 		upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
 		if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
-			logger.LegacyPrintf("service.gateway",
-				"count_tokens passthrough upstream error %d (account=%d platform=%s) [isolated, account state unchanged]: %s",
-				resp.StatusCode,
-				account.ID,
-				account.Platform,
-				truncateForLog(respBody, s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes),
+			logger.L().Warn("count_tokens passthrough upstream non-2xx (account state unchanged)",
+				zap.String("component", "service.gateway"),
+				zap.Int("status", resp.StatusCode),
+				zap.Int64("account_id", account.ID),
+				zap.String("platform", account.Platform),
+				zap.String("body", truncateForLog(respBody, s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)),
 			)
 		}
 		inputTokens := estimateInputTokens(parsed)
-		logger.LegacyPrintf("service.gateway",
-			"[count_tokens] passthrough upstream error %d, falling back to local estimation: %d tokens (account=%d name=%s msg=%s)",
-			resp.StatusCode, inputTokens, account.ID, account.Name, truncateString(upstreamMsg, 256))
+		logger.L().Warn("count_tokens passthrough fallback to local estimation",
+			zap.String("component", "service.gateway"),
+			zap.Int("upstream_status", resp.StatusCode),
+			zap.Int("input_tokens", inputTokens),
+			zap.Int64("account_id", account.ID),
+			zap.String("account_name", account.Name),
+			zap.String("upstream_msg", truncateString(upstreamMsg, 256)),
+		)
 		c.JSON(http.StatusOK, gin.H{"input_tokens": inputTokens})
 		return nil
 	}

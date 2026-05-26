@@ -433,11 +433,15 @@ func ProvideAPIKeyService(
 	billingCacheService *BillingCacheService,
 	entClient *dbent.Client,
 	teamMemberRepo TeamMemberRepository,
+	teamGroupRateRepo TeamGroupRateRepository,
+	teamAllowedGroupRepo TeamAllowedGroupRepository,
 ) *APIKeyService {
 	svc := NewAPIKeyService(apiKeyRepo, userRepo, groupRepo, userSubRepo, userGroupRateRepo, cache, cfg)
 	svc.SetRateLimitCacheInvalidator(billingCacheService)
 	svc.SetEntClient(entClient)
 	svc.SetTeamMemberRepository(teamMemberRepo)
+	svc.SetTeamGroupRateRepository(teamGroupRateRepo)
+	svc.SetTeamAllowedGroupRepository(teamAllowedGroupRepo)
 	return svc
 }
 
