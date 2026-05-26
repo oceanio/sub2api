@@ -73,6 +73,7 @@ func NewGatewayHandler(
 	userMsgQueueService *service.UserMessageQueueService,
 	cfg *config.Config,
 	settingService *service.SettingService,
+	debugLogService *service.RequestDebugLogService,
 ) *GatewayHandler {
 	pingInterval := time.Duration(0)
 	maxAccountSwitches := 10
@@ -110,12 +111,8 @@ func NewGatewayHandler(
 		maxAccountSwitchesGemini:  maxAccountSwitchesGemini,
 		cfg:                       cfg,
 		settingService:            settingService,
+		debugLogService:           debugLogService,
 	}
-}
-
-// SetDebugLogService injects the debug log service (optional, no-op if nil).
-func (h *GatewayHandler) SetDebugLogService(svc *service.RequestDebugLogService) {
-	h.debugLogService = svc
 }
 
 // Messages handles Claude API compatible messages endpoint

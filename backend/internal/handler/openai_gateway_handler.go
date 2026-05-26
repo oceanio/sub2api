@@ -40,11 +40,6 @@ type OpenAIGatewayHandler struct {
 	debugLogService          *service.RequestDebugLogService
 }
 
-// SetDebugLogService injects the debug log service (optional, no-op if nil).
-func (h *OpenAIGatewayHandler) SetDebugLogService(svc *service.RequestDebugLogService) {
-	h.debugLogService = svc
-}
-
 func resolveOpenAIMessagesDispatchMappedModel(apiKey *service.APIKey, requestedModel string) string {
 	if apiKey == nil || apiKey.Group == nil {
 		return ""
@@ -62,6 +57,7 @@ func NewOpenAIGatewayHandler(
 	errorPassthroughService *service.ErrorPassthroughService,
 	contentModerationService *service.ContentModerationService,
 	cfg *config.Config,
+	debugLogService *service.RequestDebugLogService,
 ) *OpenAIGatewayHandler {
 	pingInterval := time.Duration(0)
 	maxAccountSwitches := 3
@@ -82,6 +78,7 @@ func NewOpenAIGatewayHandler(
 		imageLimiter:             &imageConcurrencyLimiter{},
 		maxAccountSwitches:       maxAccountSwitches,
 		cfg:                      cfg,
+		debugLogService:          debugLogService,
 	}
 }
 
