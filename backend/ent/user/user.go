@@ -89,6 +89,8 @@ const (
 	EdgeTeamMemberships = "team_memberships"
 	// EdgeTeamAdminRoles holds the string denoting the team_admin_roles edge name in mutations.
 	EdgeTeamAdminRoles = "team_admin_roles"
+	// EdgePlatformQuotas holds the string denoting the platform_quotas edge name in mutations.
+	EdgePlatformQuotas = "platform_quotas"
 	// EdgeUserAllowedGroups holds the string denoting the user_allowed_groups edge name in mutations.
 	EdgeUserAllowedGroups = "user_allowed_groups"
 	// Table holds the table name of the user in the database.
@@ -189,6 +191,13 @@ const (
 	TeamAdminRolesInverseTable = "team_admins"
 	// TeamAdminRolesColumn is the table column denoting the team_admin_roles relation/edge.
 	TeamAdminRolesColumn = "user_id"
+	// PlatformQuotasTable is the table that holds the platform_quotas relation/edge.
+	PlatformQuotasTable = "user_platform_quotas"
+	// PlatformQuotasInverseTable is the table name for the UserPlatformQuota entity.
+	// It exists in this package in order to avoid circular dependency with the "userplatformquota" package.
+	PlatformQuotasInverseTable = "user_platform_quotas"
+	// PlatformQuotasColumn is the table column denoting the platform_quotas relation/edge.
+	PlatformQuotasColumn = "user_id"
 	// UserAllowedGroupsTable is the table that holds the user_allowed_groups relation/edge.
 	UserAllowedGroupsTable = "user_allowed_groups"
 	// UserAllowedGroupsInverseTable is the table name for the UserAllowedGroup entity.
@@ -615,6 +624,20 @@ func ByTeamAdminRoles(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByPlatformQuotasCount orders the results by platform_quotas count.
+func ByPlatformQuotasCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newPlatformQuotasStep(), opts...)
+	}
+}
+
+// ByPlatformQuotas orders the results by platform_quotas terms.
+func ByPlatformQuotas(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newPlatformQuotasStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByUserAllowedGroupsCount orders the results by user_allowed_groups count.
 func ByUserAllowedGroupsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -724,6 +747,13 @@ func newTeamAdminRolesStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(TeamAdminRolesInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, TeamAdminRolesTable, TeamAdminRolesColumn),
+	)
+}
+func newPlatformQuotasStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(PlatformQuotasInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, PlatformQuotasTable, PlatformQuotasColumn),
 	)
 }
 func newUserAllowedGroupsStep() *sqlgraph.Step {

@@ -231,6 +231,9 @@ type SystemSettings struct {
 	DisplayDiscountEnabled bool    // 是否启用"折扣"显示模式（关闭时展示原始倍率 Nx）
 	LocalCurrency          string  // 本币币种代码（CNY/HKD），用于汇率换算
 	USDExchangeRate        float64 // 1 USD = N LocalCurrency（按 LocalCurrency 解释）
+
+	// 系统全局默认平台配额（key = platform，nil/缺省 = 不限制）
+	DefaultPlatformQuotas map[string]*DefaultPlatformQuotaSetting `json:"default_platform_quotas"`
 }
 
 type DefaultSubscriptionSetting struct {
