@@ -25,7 +25,8 @@ var (
 	ErrTeamInitialAdminRequired = infraerrors.BadRequest("TEAM_INITIAL_ADMIN_REQUIRED", "initial team_admin is required when creating a team")
 	ErrTeamEmailAlreadyExists   = infraerrors.Conflict("TEAM_EMAIL_ALREADY_EXISTS", "this email already exists on the platform; ask the system administrator to add the user to your team")
 	ErrTeamMemberCapReached     = infraerrors.BadRequest("TEAM_MEMBER_CAP_REACHED", "this team has reached its member cap; ask the system administrator to raise it")
-	ErrTeamSubscriptionsDisabled = infraerrors.Forbidden("TEAM_SUBSCRIPTIONS_DISABLED", "subscriptions feature is disabled for this team")
+	ErrTeamSubscriptionsDisabled  = infraerrors.Forbidden("TEAM_SUBSCRIPTIONS_DISABLED", "subscriptions feature is disabled for this team")
+	ErrGroupNotExclusive          = infraerrors.BadRequest("GROUP_NOT_EXCLUSIVE", "only exclusive groups can be added to team allowed groups")
 )
 
 // ── Balance log type constants ─────────────────────────────────────────────────

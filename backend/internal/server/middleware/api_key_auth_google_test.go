@@ -77,6 +77,9 @@ func (f fakeAPIKeyRepo) SearchAPIKeys(ctx context.Context, userID int64, keyword
 func (f fakeAPIKeyRepo) ClearGroupIDByGroupID(ctx context.Context, groupID int64) (int64, error) {
 	return 0, errors.New("not implemented")
 }
+func (f fakeAPIKeyRepo) ClearGroupIDByTeamAndGroup(ctx context.Context, teamID, groupID int64) (int64, error) {
+	return 0, errors.New("not implemented")
+}
 func (f fakeAPIKeyRepo) CountByGroupID(ctx context.Context, groupID int64) (int64, error) {
 	return 0, errors.New("not implemented")
 }

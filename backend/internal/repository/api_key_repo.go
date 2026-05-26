@@ -470,6 +470,24 @@ func (r *apiKeyRepository) ClearGroupIDByGroupID(ctx context.Context, groupID in
 	return int64(n), err
 }
 
+// ClearGroupIDByTeamAndGroup 将指定团队所有成员中绑定 groupID 的 API Key 的 group_id 清为 nil。
+// 撤销团队专属分组授权时调用，确保已创建的 key 立即失去该分组访问权。
+func (r *apiKeyRepository) ClearGroupIDByTeamAndGroup(ctx context.Context, teamID, groupID int64) (int64, error) {
+	result, err := r.sql.ExecContext(ctx, `
+		UPDATE api_keys SET group_id = NULL, updated_at = NOW()
+		WHERE group_id = $1
+		  AND deleted_at IS NULL
+		  AND user_id IN (
+		    SELECT user_id FROM team_members WHERE team_id = $2 AND deleted_at IS NULL
+		  )
+	`, groupID, teamID)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := result.RowsAffected()
+	return n, nil
+}
+
 // UpdateGroupIDByUserAndGroup 将用户下绑定 oldGroupID 的所有 Key 迁移到 newGroupID
 func (r *apiKeyRepository) UpdateGroupIDByUserAndGroup(ctx context.Context, userID, oldGroupID, newGroupID int64) (int64, error) {
 	client := clientFromContext(ctx, r.client)

@@ -1162,17 +1162,35 @@ func (s *TeamService) GetTeamAllowedGroups(ctx context.Context, teamID int64) ([
 }
 
 // AddTeamAllowedGroup authorizes an exclusive group for all members of a team.
+// Returns ErrGroupNotFound if the group doesn't exist, ErrGroupNotExclusive if
+// the group is not exclusive (only exclusive groups require team-level grants).
 func (s *TeamService) AddTeamAllowedGroup(ctx context.Context, teamID, groupID int64) error {
 	if s.teamAllowedGroupRepo == nil {
 		return nil
+	}
+	g, err := s.entClient.Group.Get(ctx, groupID)
+	if err != nil {
+		return ErrGroupNotFound
+	}
+	if !g.IsExclusive {
+		return ErrGroupNotExclusive
 	}
 	return s.teamAllowedGroupRepo.Add(ctx, teamID, groupID)
 }
 
 // RemoveTeamAllowedGroup revokes an exclusive group's authorization from a team.
+// It also clears that group from any API keys belonging to team members so that
+// revocation takes effect immediately rather than waiting for key recreation.
 func (s *TeamService) RemoveTeamAllowedGroup(ctx context.Context, teamID, groupID int64) error {
 	if s.teamAllowedGroupRepo == nil {
 		return nil
 	}
-	return s.teamAllowedGroupRepo.Remove(ctx, teamID, groupID)
+	if err := s.teamAllowedGroupRepo.Remove(ctx, teamID, groupID); err != nil {
+		return err
+	}
+	if _, err := s.apiKeyRepo.ClearGroupIDByTeamAndGroup(ctx, teamID, groupID); err != nil {
+		return fmt.Errorf("clear api key groups after revoke: %w", err)
+	}
+	s.invalidateAuthCacheForTeam(ctx, teamID)
+	return nil
 }
