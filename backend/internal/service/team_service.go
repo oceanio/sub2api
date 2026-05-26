@@ -949,7 +949,7 @@ func (s *TeamService) processPurchaseBatch(
 
 	subs := make([]UserSubscription, 0, len(userIDs))
 	for _, uid := range userIDs {
-		sub, isRenewal, err := s.subService.AssignOrExtendSubscription(txCtx, &AssignSubscriptionInput{
+		sub, _, err := s.subService.AssignOrExtendSubscription(txCtx, &AssignSubscriptionInput{
 			UserID:       uid,
 			GroupID:      plan.GroupID,
 			ValidityDays: plan.ValidityDays,
@@ -964,13 +964,10 @@ func (s *TeamService) processPurchaseBatch(
 			return nil, false, fmt.Errorf("stamp team_id on subscription: %w", err)
 		}
 
-		action := "purchase"
-		if isRenewal {
-			action = "renew"
-		}
-		// Use the plan name (not the numeric id) so balance-log readers can tell
-		// at a glance which subscription was bought without joining tables.
-		note := fmt.Sprintf("%s %q for user %d", action, plan.Name, uid)
+		// Use the plan name as the balance-log note; the action (purchase vs
+		// renew) is not currently surfaced separately and the target user is
+		// already stored in target_user_id and rendered in the UI.
+		note := plan.Name
 		if _, err := tx.TeamBalanceLog.Create().
 			SetTeamID(teamID).
 			SetType(TeamBalanceLogTypeSubscriptionPurchase).
