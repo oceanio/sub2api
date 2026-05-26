@@ -6263,6 +6263,8 @@ export default {
         enabledHint: '收到无重置时间的 429 时暂停该账号调度，冷却后自动恢复',
         cooldownSeconds: '回避时长（秒）',
         cooldownSecondsHint: '默认回避持续时间（1-7200 秒）；上游返回明确 reset 时仍优先使用上游时间',
+        passthroughToClient: '池模式 429 透传客户端',
+        passthroughToClientHint: '仅对池模式账号生效：同账号重试用尽后不切换账号，把 429 直接返回给客户端，由客户端自行 backoff；账号状态保持不变',
         saved: '429 默认回避设置保存成功',
         saveFailed: '保存 429 默认回避设置失败'
       },

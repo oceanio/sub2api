@@ -546,6 +546,19 @@ func (s *GatewayService) TempUnscheduleRetryableError(ctx context.Context, accou
 	}
 }
 
+// IsPool429PassthroughEnabled 读取「池模式 429 透传到客户端」开关。
+// 由 handler 层在 RetryableOnSameAccount + 429 同账号重试用尽时检查。
+func (s *GatewayService) IsPool429PassthroughEnabled(ctx context.Context) bool {
+	if s == nil || s.settingService == nil {
+		return false
+	}
+	settings, err := s.settingService.GetRateLimit429CooldownSettings(ctx)
+	if err != nil || settings == nil {
+		return false
+	}
+	return settings.PassthroughToClient
+}
+
 // GatewayService handles API gateway operations
 type GatewayService struct {
 	accountRepo           AccountRepository

@@ -478,6 +478,11 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						return
 					case FailoverCanceled:
 						return
+					case FailoverPassthrough:
+						handleFailoverPassthrough(c, fs.LastFailoverErr, func() {
+							h.handleFailoverExhausted(c, fs.LastFailoverErr, service.PlatformGemini, streamStarted)
+						})
+						return
 					}
 				}
 				wroteFallback := h.ensureForwardErrorResponse(c, streamStarted)
@@ -874,6 +879,11 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						h.handleFailoverExhausted(c, fs.LastFailoverErr, account.Platform, streamStarted)
 						return
 					case FailoverCanceled:
+						return
+					case FailoverPassthrough:
+						handleFailoverPassthrough(c, fs.LastFailoverErr, func() {
+							h.handleFailoverExhausted(c, fs.LastFailoverErr, account.Platform, streamStarted)
+						})
 						return
 					}
 				}
@@ -1436,6 +1446,28 @@ func (h *GatewayHandler) handleFailoverExhaustedSimple(c *gin.Context, statusCod
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
 	service.SetOpsUpstreamError(c, statusCode, errMsg, "")
 	h.handleStreamingAwareError(c, status, errType, errMsg, streamStarted)
+}
+
+// handleFailoverPassthrough 把上游响应（status + body）直接返回给客户端，用于池模式 429 透传。
+// 仅在 streamStarted=false 时调用——已经开始流式响应时无法透传。
+// 上游 body 为空时调用 onEmpty（由调用方按入站接口 schema 合成错误响应，
+// 避免在 OpenAI/Gemini 客户端面前合成 Anthropic schema 的错误体）。
+func handleFailoverPassthrough(c *gin.Context, failoverErr *service.UpstreamFailoverError, onEmpty func()) {
+	if failoverErr == nil {
+		if onEmpty != nil {
+			onEmpty()
+		}
+		return
+	}
+	upstreamMsg := service.ExtractUpstreamErrorMessage(failoverErr.ResponseBody)
+	service.SetOpsUpstreamError(c, failoverErr.StatusCode, upstreamMsg, "")
+	if len(failoverErr.ResponseBody) == 0 {
+		if onEmpty != nil {
+			onEmpty()
+		}
+		return
+	}
+	c.Data(failoverErr.StatusCode, "application/json", failoverErr.ResponseBody)
 }
 
 func (h *GatewayHandler) mapUpstreamError(statusCode int) (int, string, string) {
