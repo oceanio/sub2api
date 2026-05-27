@@ -108,6 +108,9 @@ func (s *apiKeyRepoStub) SearchAPIKeys(ctx context.Context, userID int64, keywor
 func (s *apiKeyRepoStub) ClearGroupIDByGroupID(ctx context.Context, groupID int64) (int64, error) {
 	panic("unexpected ClearGroupIDByGroupID call")
 }
+func (s *apiKeyRepoStub) ClearGroupIDByTeamAndGroup(ctx context.Context, teamID, groupID int64) (int64, error) {
+	panic("unexpected ClearGroupIDByTeamAndGroup call")
+}
 func (s *apiKeyRepoStub) UpdateGroupIDByUserAndGroup(ctx context.Context, userID, oldGroupID, newGroupID int64) (int64, error) {
 	panic("unexpected UpdateGroupIDByUserAndGroup call")
 }

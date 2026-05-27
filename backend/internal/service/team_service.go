@@ -1039,6 +1039,9 @@ func (s *TeamService) ListTeamSubscriptions(ctx context.Context, teamID, operato
 	if err != nil {
 		return nil, nil, fmt.Errorf("list team subscriptions: %w", err)
 	}
+	// 与 admin SubscriptionService.List 一致：内存修正过期窗口与状态，避免前端展示旧值。
+	normalizeExpiredWindows(subs)
+	normalizeSubscriptionStatus(subs)
 	return subs, result, nil
 }
 
@@ -1103,7 +1106,13 @@ func (s *TeamService) ListMemberSubscriptions(ctx context.Context, teamID, membe
 	if member.TeamID != teamID {
 		return nil, ErrTeamMemberNotFound
 	}
-	return s.userSubRepo.ListByUserID(ctx, member.UserID)
+	subs, err := s.userSubRepo.ListByUserID(ctx, member.UserID)
+	if err != nil {
+		return nil, err
+	}
+	normalizeExpiredWindows(subs)
+	normalizeSubscriptionStatus(subs)
+	return subs, nil
 }
 
 // requireTeamAdmin enforces the team_admin permission for an operation.
