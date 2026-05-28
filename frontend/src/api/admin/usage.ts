@@ -196,6 +196,63 @@ export async function cancelCleanupTask(taskId: number): Promise<{ id: number; s
   return data
 }
 
+/**
+ * Request debug log payload returned by GET /admin/usage/:request_id/debug-log.
+ * `found=false` means the log was not captured (debug switch off, sampled out,
+ * expired, or request type not eligible).
+ */
+export interface DebugLogFieldCut {
+  path: string
+  original_bytes: number
+  cut_bytes: number
+  mode: 'tail' | 'head_tail'
+}
+
+export interface DebugLogTruncationInfo {
+  request?: DebugLogFieldCut[]
+  response?: DebugLogFieldCut[]
+  images_stripped?: number
+  tool_results_cut?: number
+  tool_results_elided?: number
+  historical_messages_elided?: number
+  tools_simplified?: number
+  tools_bytes_saved?: number
+  signatures_stripped?: number
+  cache_control_stripped?: number
+  overall_cut_bytes?: number
+  aggregation_failed?: boolean
+  smart_failed?: boolean
+}
+
+export interface DebugLogResponse {
+  found: boolean
+  request_id?: string
+  model?: string
+  stream?: boolean
+  request_headers?: Record<string, string>
+  request_body?: unknown
+  request_text?: string
+  response_headers?: Record<string, string>
+  response_body?: unknown
+  response_text?: string
+  truncated?: boolean
+  truncation_info?: DebugLogTruncationInfo
+  body_bytes?: number
+  created_at?: string
+  expires_at?: string
+}
+
+/**
+ * Fetch the debug log for a request by request_id (admin only).
+ * Returns { found: false } when no log exists for the id.
+ */
+export async function getRequestDebugLog(requestId: string): Promise<DebugLogResponse> {
+  const { data } = await apiClient.get<DebugLogResponse>(
+    `/admin/usage/${encodeURIComponent(requestId)}/debug-log`
+  )
+  return data
+}
+
 export const adminUsageAPI = {
   list,
   getStats,
@@ -203,7 +260,8 @@ export const adminUsageAPI = {
   searchApiKeys,
   listCleanupTasks,
   createCleanupTask,
-  cancelCleanupTask
+  cancelCleanupTask,
+  getRequestDebugLog
 }
 
 export default adminUsageAPI

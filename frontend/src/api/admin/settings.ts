@@ -599,6 +599,13 @@ export interface SystemSettings {
   account_quota_notify_enabled: boolean;
   account_quota_notify_emails: NotifyEmailEntry[];
 
+  // Request debug log (fork)
+  debug_request_log_enabled: boolean;
+  debug_request_log_ttl_hours: number;
+  debug_request_log_sample_rate: number;
+  debug_request_log_redact_headers: boolean;
+  debug_request_log_body_limit_bytes: number;
+
   // Channel Monitor feature switch
   channel_monitor_enabled: boolean;
   channel_monitor_default_interval_seconds: number;
@@ -827,6 +834,13 @@ export interface UpdateSettingsRequest {
   subscription_expiry_notify_enabled?: boolean;
   account_quota_notify_enabled?: boolean;
   account_quota_notify_emails?: NotifyEmailEntry[];
+
+  // Request debug log (fork)
+  debug_request_log_enabled?: boolean;
+  debug_request_log_ttl_hours?: number;
+  debug_request_log_sample_rate?: number;
+  debug_request_log_redact_headers?: boolean;
+  debug_request_log_body_limit_bytes?: number;
 
   // Channel Monitor feature switch
   channel_monitor_enabled?: boolean;

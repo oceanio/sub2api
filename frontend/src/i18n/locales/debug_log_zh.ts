@@ -1,0 +1,75 @@
+// Fork addition: 请求调试日志功能的 i18n。
+// 单独成文件，zh.ts 只需 1 个 import + 2 处 spread（admin.usage、
+// admin.settings.features），上游 zh.ts 变动不会冲突。
+//
+//   debugLogUsage             -> spread 入 admin.usage
+//   debugLogSettingsFeatures  -> spread 入 admin.settings.features
+
+export const debugLogUsage = {
+  viewDebugMessage: '查看调试日志',
+  debugLogModal: {
+    title: '请求调试详情',
+    notFoundTitle: '该请求未保存调试日志',
+    notFoundReasons: '可能原因：调试开关在该请求时未开启 / 命中采样率排除 / 请求类型不在录制范围 / 日志已过期被清理。',
+    meta: '元信息',
+    requestId: '请求 ID',
+    model: '模型',
+    stream: '流式',
+    bodyBytes: '原始大小',
+    truncated: '内容已截断',
+    createdAt: '创建时间',
+    expiresAt: '过期时间',
+    tabRequest: '请求体',
+    tabResponse: '响应体',
+    tabHeaders: '头部',
+    requestHeaders: '请求头',
+    responseHeaders: '响应头',
+    empty: '（无）',
+    copyJson: '复制 JSON',
+    copied: '已复制',
+    loadFailed: '加载调试日志失败',
+    close: '关闭',
+    rawText: '原始文本（非 JSON）',
+    truncationTitle: '截断详情',
+    truncationSummary: '共截断 {fields} 个字段，剥离 {images} 张图片，简化 {tools} 个工具',
+    truncationToolsSimplified: '{count} 个工具的 description/schema 已简化为名字列表，节省 {bytes}',
+    truncationToolResultsElided: '{count} 个历史 tool_result 已替换为占位（保留 tool_use_id 引用）',
+    truncationToolResultsCut: '{count} 个最近消息的 tool_result 内容已截断',
+    truncationHistoricalMessagesElided: '{count} 条历史轮次消息已整段占位（只保留 role 结构，最近一轮 user+assistant 保留详情）',
+    truncationSignaturesStripped: '{count} 个 thinking signature / 加密 thinking 已删除',
+    truncationCacheControlStripped: '{count} 个 cache_control 标记已删除',
+    truncationSmartFailed: 'JSON 解析失败，已退化为原始文本兜底',
+    truncationAggregationFailed: '流式聚合失败，已退化为原始 SSE 文本',
+    truncationOverallCut: '字段级截断后整体仍超 1MB，额外裁掉 {bytes}',
+    truncationFieldRequest: '请求字段',
+    truncationFieldResponse: '响应字段',
+    truncationFieldPath: '字段路径',
+    truncationFieldCut: '截断',
+    truncationFieldOriginal: '原始',
+    truncationFieldMode: '方式',
+    truncationSubtotal: '本节共截断 {bytes}',
+    truncationModeTail: '尾截',
+    truncationModeHeadTail: '头+尾',
+  },
+}
+
+export const debugLogSettingsFeatures = {
+  debugLog: {
+    title: '请求调试日志',
+    description: '开启后保存每次请求的完整 messages 与响应内容，用于对话调试与审计。默认关闭。',
+    enabled: '启用调试日志',
+    enabledHint: '开启后可能保存包含敏感对话内容的数据，请遵守隐私合规要求。',
+    ttlHours: '保留时长（小时）',
+    ttlHoursHint: '日志超过该时长后由后台任务清理。范围 1～720（30 天）。',
+    sampleRate: '采样率（%）',
+    sampleRateHint: '100 = 全量记录；高流量生产环境建议调低以节省存储。',
+    bodyLimit: 'Body 截断（字节）',
+    bodyLimitHint: '单条请求/响应体最大保留字节数。0 = 不截断。建议生产设为 1024～4096。',
+    redactHeaders: '脱敏请求头中的 API Key',
+    redactHeadersHint: '关闭后将完整保存 Authorization、x-api-key 等敏感字段。',
+    redactConfirmTitle: '关闭脱敏会泄漏 API Key',
+    redactConfirmContent: '关闭脱敏后将完整保存 Authorization、x-api-key 等敏感字段到调试日志中。\n该操作存在 API Key 泄漏风险。确定继续吗？',
+    redactConfirmOk: '确认关闭',
+    redactConfirmCancel: '取消',
+  },
+}

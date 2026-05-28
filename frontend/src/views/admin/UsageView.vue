@@ -109,6 +109,7 @@
         :default-sort-order="'desc'"
         @sort="handleSort"
         @userClick="handleUserClick"
+        @debugLogClick="openDebugLog"
       />
       <Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" />
     </div>
@@ -120,6 +121,11 @@
     :start-date="startDate"
     :end-date="endDate"
     @close="cleanupDialogVisible = false"
+  />
+  <DebugLogModal
+    :show="debugLogModalShow"
+    :request-id="debugLogRequestId"
+    @close="closeDebugLog"
   />
   <!-- Balance history modal triggered from usage table user click -->
   <UserBalanceHistoryModal
@@ -143,6 +149,7 @@ import AppLayout from '@/components/layout/AppLayout.vue'; import Pagination fro
 import UsageStatsCards from '@/components/admin/usage/UsageStatsCards.vue'; import UsageFilters from '@/components/admin/usage/UsageFilters.vue'
 import UsageTable from '@/components/admin/usage/UsageTable.vue'; import UsageExportProgress from '@/components/admin/usage/UsageExportProgress.vue'
 import UsageCleanupDialog from '@/components/admin/usage/UsageCleanupDialog.vue'
+import DebugLogModal from '@/components/admin/usage/DebugLogModal.vue'
 import UserBalanceHistoryModal from '@/components/admin/user/UserBalanceHistoryModal.vue'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'; import GroupDistributionChart from '@/components/charts/GroupDistributionChart.vue'; import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import EndpointDistributionChart from '@/components/charts/EndpointDistributionChart.vue'
@@ -516,8 +523,20 @@ const exportToExcel = async () => {
   finally { if(exportAbortController === c) { exportAbortController = null; exporting.value = false; exportProgress.show = false } }
 }
 
+// Debug log modal state (fork)
+const debugLogModalShow = ref(false)
+const debugLogRequestId = ref<string | null>(null)
+function openDebugLog(requestId: string) {
+  debugLogRequestId.value = requestId
+  debugLogModalShow.value = true
+}
+function closeDebugLog() {
+  debugLogModalShow.value = false
+  debugLogRequestId.value = null
+}
+
 // Column visibility
-const ALWAYS_VISIBLE = ['user', 'created_at']
+const ALWAYS_VISIBLE = ['user', 'created_at', 'actions']
 const DEFAULT_HIDDEN_COLUMNS = ['reasoning_effort', 'user_agent']
 const HIDDEN_COLUMNS_KEY = 'usage-hidden-columns'
 
@@ -537,7 +556,8 @@ const allColumns = computed(() => [
   { key: 'duration', label: t('usage.duration'), sortable: false },
   { key: 'created_at', label: t('usage.time'), sortable: true },
   { key: 'user_agent', label: t('usage.userAgent'), sortable: false },
-  { key: 'ip_address', label: t('admin.usage.ipAddress'), sortable: false }
+  { key: 'ip_address', label: t('admin.usage.ipAddress'), sortable: false },
+  { key: 'actions', label: '', sortable: false }
 ])
 
 const hiddenColumns = reactive<Set<string>>(new Set())

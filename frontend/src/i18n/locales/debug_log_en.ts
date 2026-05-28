@@ -1,0 +1,75 @@
+// Fork addition: i18n for the request-debug-log feature.
+// Lives in its own file so en.ts stays close to upstream — only 1 import
+// and 2 spread points needed in en.ts (admin.usage + admin.settings.features).
+//
+//   debugLogUsage             -> spread into admin.usage
+//   debugLogSettingsFeatures  -> spread into admin.settings.features
+
+export const debugLogUsage = {
+  viewDebugMessage: 'View debug log',
+  debugLogModal: {
+    title: 'Request Debug Details',
+    notFoundTitle: 'No debug log saved for this request',
+    notFoundReasons: 'Possible reasons: debug switch was off, sampled out, request type not recorded, or log has expired.',
+    meta: 'Metadata',
+    requestId: 'Request ID',
+    model: 'Model',
+    stream: 'Stream',
+    bodyBytes: 'Body size',
+    truncated: 'Content truncated',
+    createdAt: 'Created at',
+    expiresAt: 'Expires at',
+    tabRequest: 'Request',
+    tabResponse: 'Response',
+    tabHeaders: 'Headers',
+    requestHeaders: 'Request Headers',
+    responseHeaders: 'Response Headers',
+    empty: '(empty)',
+    copyJson: 'Copy JSON',
+    copied: 'Copied',
+    loadFailed: 'Failed to load debug log',
+    close: 'Close',
+    rawText: 'Raw text (non-JSON)',
+    truncationTitle: 'Truncation details',
+    truncationSummary: '{fields} field(s) truncated, {images} image(s) stripped, {tools} tool(s) simplified',
+    truncationToolsSimplified: '{count} tool(s) simplified to name-only list, saved {bytes}',
+    truncationToolResultsElided: '{count} historical tool_result(s) replaced with placeholder (tool_use_id kept)',
+    truncationToolResultsCut: '{count} recent tool_result content(s) truncated',
+    truncationHistoricalMessagesElided: '{count} historical turn message(s) elided (role kept; last user+assistant turn retained in full detail)',
+    truncationSignaturesStripped: '{count} thinking signature(s) / redacted thinking removed',
+    truncationCacheControlStripped: '{count} cache_control marker(s) removed',
+    truncationSmartFailed: 'JSON parsing failed; fell back to raw text',
+    truncationAggregationFailed: 'Streaming aggregation failed; fell back to raw SSE text',
+    truncationOverallCut: 'Body still exceeded 1MB after field-level truncation; extra {bytes} cut',
+    truncationFieldRequest: 'Request fields',
+    truncationFieldResponse: 'Response fields',
+    truncationFieldPath: 'Path',
+    truncationFieldCut: 'Cut',
+    truncationFieldOriginal: 'Original',
+    truncationFieldMode: 'Mode',
+    truncationSubtotal: 'Subtotal cut: {bytes}',
+    truncationModeTail: 'tail',
+    truncationModeHeadTail: 'head+tail',
+  },
+}
+
+export const debugLogSettingsFeatures = {
+  debugLog: {
+    title: 'Request Debug Log',
+    description: 'When on, the full request and response payload of each call is saved for debugging and audit. Disabled by default.',
+    enabled: 'Enable Debug Log',
+    enabledHint: 'May store sensitive conversation content. Ensure compliance with your privacy policy.',
+    ttlHours: 'Retention (hours)',
+    ttlHoursHint: 'Logs older than this are removed by the cleanup task. Range: 1–720 (30 days).',
+    sampleRate: 'Sample Rate (%)',
+    sampleRateHint: '100 = record every request. Lower this on high-traffic deployments to save storage.',
+    bodyLimit: 'Body Truncation (bytes)',
+    bodyLimitHint: 'Max bytes kept per request/response body. 0 = no truncation. 1024–4096 recommended for production.',
+    redactHeaders: 'Redact API keys in headers',
+    redactHeadersHint: 'When off, headers like Authorization and x-api-key are stored in full.',
+    redactConfirmTitle: 'Disabling redaction may leak API keys',
+    redactConfirmContent: 'Turning redaction off stores full Authorization, x-api-key, and similar sensitive fields in the debug log.\nThis carries a real risk of API key leakage. Continue?',
+    redactConfirmOk: 'Disable redaction',
+    redactConfirmCancel: 'Cancel',
+  },
+}

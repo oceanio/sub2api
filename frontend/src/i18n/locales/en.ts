@@ -1,3 +1,7 @@
+// Fork additions are kept in dedicated files (see ./debug_log_en) to minimize
+// merge conflicts when origin/main churns this file.
+import { debugLogUsage, debugLogSettingsFeatures } from './debug_log_en'
+
 export default {
   // Home Page
   home: {
@@ -4512,7 +4516,8 @@ export default {
           failed: 'Failed',
           canceled: 'Canceled'
         }
-      }
+      },
+      ...debugLogUsage,
     },
 
     // Ops Monitoring
@@ -5349,6 +5354,7 @@ export default {
             clearHint: 'Submitting empty will clear the exclusive rate for selected users.',
           },
         },
+        ...debugLogSettingsFeatures,
       },
       emailTabDisabledTitle: 'Email Verification Not Enabled',
       emailTabDisabledHint: 'Enable email verification in the Security tab to configure SMTP settings.',

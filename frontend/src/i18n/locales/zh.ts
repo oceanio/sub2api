@@ -1,3 +1,6 @@
+// Fork addition 集中在独立文件 (见 ./debug_log_zh)，减少跟踪上游时的冲突。
+import { debugLogUsage, debugLogSettingsFeatures } from './debug_log_zh'
+
 export default {
   // Home Page
   home: {
@@ -4667,7 +4670,8 @@ export default {
           failed: '失败',
           canceled: '已取消'
         }
-      }
+      },
+      ...debugLogUsage,
     },
 
     // Ops Monitoring
@@ -5511,6 +5515,7 @@ export default {
             clearHint: '留空提交将清除所选用户的专属比例。',
           },
         },
+        ...debugLogSettingsFeatures,
       },
       emailTabDisabledTitle: '邮箱验证未启用',
       emailTabDisabledHint: '请在「安全与认证」选项卡中启用邮箱验证后，再配置 SMTP 设置。',

@@ -6579,6 +6579,9 @@
           <BackupSettings />
         </div>
 
+        <!-- Fork: Debug Log settings card -->
+        <SettingsDebugLogSection :form="form" />
+
         <!-- Save Button -->
         <div v-show="activeTab !== 'backup'" class="flex justify-end">
           <button
@@ -6697,6 +6700,7 @@ import ProxySelector from "@/components/common/ProxySelector.vue";
 import ImageUpload from "@/components/common/ImageUpload.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
+import SettingsDebugLogSection from "@/components/admin/settings/SettingsDebugLogSection.vue";
 import { useClipboard } from "@/composables/useClipboard";
 import { affiliatesAPI, type AffiliateAdminEntry, type SimpleUser as AffiliateSimpleUser } from "@/api/admin/affiliates";
 import { extractApiErrorMessage, extractI18nErrorMessage } from "@/utils/apiError";
@@ -7169,6 +7173,12 @@ const form = reactive<SettingsForm>({
   subscription_expiry_notify_enabled: true,
   account_quota_notify_enabled: false,
   account_quota_notify_emails: [] as NotifyEmailEntry[],
+  // Request debug log (fork) — 默认与后端 setting_debug_log.go 对齐
+  debug_request_log_enabled: false,
+  debug_request_log_ttl_hours: 168,
+  debug_request_log_sample_rate: 10,
+  debug_request_log_redact_headers: true,
+  debug_request_log_body_limit_bytes: 1024,
   // Channel Monitor feature switch
   channel_monitor_enabled: true,
   channel_monitor_default_interval_seconds: 60,
