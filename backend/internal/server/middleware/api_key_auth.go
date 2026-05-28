@@ -201,8 +201,11 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 					subscriptionService.DoWindowMaintenance(&maintenanceCopy)
 				}
 			} else {
-				// 非订阅模式 或 订阅模式但 subscriptionService 未注入：回退到余额检查
-				if apiKey.User.Balance <= 0 {
+				// 非订阅模式 或 订阅模式但 subscriptionService 未注入：回退到余额检查。
+				// Fork: Team key 走团队余额，团队的 balance + sub_quota 检查交给 gateway 的
+				// billing_cache_service.checkTeamBillingEligibility 做，这里只对个人 key
+				// 检查 user.balance，避免团队成员个人余额=0 时被误拦。
+				if apiKey.TeamID == nil && apiKey.User.Balance <= 0 {
 					AbortWithError(c, 403, "INSUFFICIENT_BALANCE", "Insufficient account balance")
 					return
 				}

@@ -59,7 +59,12 @@ func TestUserGroupRateResolverResolve_InvalidCacheEntryLoadsRepoAndCaches(t *tes
 
 	cached, ok := cache.Get("101:202")
 	require.True(t, ok)
-	require.Equal(t, rate, cached)
+	// Cache now stores *float64 (nil = no override). Verify we got the
+	// repo-returned override back.
+	ptr, isPtr := cached.(*float64)
+	require.True(t, isPtr)
+	require.NotNil(t, ptr)
+	require.Equal(t, rate, *ptr)
 
 	hit, miss, load, _, fallback := GatewayUserGroupRateCacheStats()
 	require.Equal(t, int64(0), hit)

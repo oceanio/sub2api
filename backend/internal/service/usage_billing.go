@@ -39,6 +39,11 @@ type UsageBillingCommand struct {
 	APIKeyQuotaCost     float64
 	APIKeyRateLimitCost float64
 	AccountQuotaCost    float64
+
+	// Team billing (non-nil when api_keys.team_id is set)
+	TeamID       *int64
+	TeamMemberID *int64
+	TeamCost     float64 // same as BalanceCost but deducted from teams.balance
 }
 
 func (c *UsageBillingCommand) Normalize() {

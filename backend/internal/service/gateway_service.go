@@ -8008,6 +8008,31 @@ func (s *GatewayService) getUserGroupRateMultiplier(ctx context.Context, userID,
 	return resolver.Resolve(ctx, userID, groupID, groupDefaultMultiplier)
 }
 
+// Fork: resolveEffectiveRateMultiplier 多级解析倍率 —— 优先级：
+//
+//	user_group override → team_group override (仅当 teamID != nil) → group default
+//
+// 实现刻意拆出来跟 user_group/team_group 两个 resolver 解耦：每个 resolver
+// 只回答「override 存在与否」，链式 fallthrough 在这里做。
+func (s *GatewayService) resolveEffectiveRateMultiplier(ctx context.Context, userID int64, teamID *int64, groupID int64, groupDefaultMultiplier float64) float64 {
+	if s == nil {
+		return groupDefaultMultiplier
+	}
+	if r := s.userGroupRateResolver; r != nil {
+		if override := r.ResolveOverride(ctx, userID, groupID); override != nil {
+			return *override
+		}
+	}
+	if teamID != nil && *teamID > 0 {
+		if r := s.teamGroupRateResolver; r != nil {
+			if override := r.ResolveOverride(ctx, *teamID, groupID); override != nil {
+				return *override
+			}
+		}
+	}
+	return groupDefaultMultiplier
+}
+
 // RecordUsageInput 记录使用量的输入参数
 type RecordUsageInput struct {
 	Result             *ForwardResult
@@ -8053,6 +8078,7 @@ type postUsageBillingParams struct {
 	IsSubscriptionBill    bool
 	AccountRateMultiplier float64
 	APIKeyService         APIKeyQuotaUpdater
+	TeamMemberID          *int64 // Fork: snapshot.TeamMemberID, for sub_quota_used tracking
 	Platform              string // 来自 APIKey 关联 Group 的平台标识
 }
 
@@ -8144,7 +8170,9 @@ func postUsageBilling(ctx context.Context, p *postUsageBillingParams, deps *bill
 	//
 	// 历史背景：原 legacy path 完全跳过此累加，导致部署中如果 repo 偶然为 nil
 	// 时用户消费可绕过 platform quota，存在静默资金风险。
-	if !p.IsSubscriptionBill && p.Platform != "" && cost.ActualCost > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil {
+	// Fork: team key 同样豁免 —— team key 消费走团队池，不应累加到 key 持有人的个人 quota
+	isTeamKeyLegacy := p.APIKey != nil && p.APIKey.TeamID != nil
+	if !p.IsSubscriptionBill && !isTeamKeyLegacy && p.Platform != "" && cost.ActualCost > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil {
 		if err := deps.userPlatformQuotaRepo.IncrementUsageWithReset(billingCtx, p.User.ID, p.Platform, cost.ActualCost, time.Now().UTC()); err != nil {
 			userPlatformQuotaDBIncrLegacyErrorTotal.Add(1)
 			logger.LegacyPrintf("service.gateway", "ALERT: legacy incr user platform quota DB failed user=%d platform=%s cost=%f: %v", p.User.ID, p.Platform, cost.ActualCost, err)
@@ -8226,6 +8254,11 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 	if p.IsSubscriptionBill && p.Subscription != nil && p.Cost.TotalCost > 0 {
 		cmd.SubscriptionID = &p.Subscription.ID
 		cmd.SubscriptionCost = p.Cost.ActualCost
+	} else if p.APIKey != nil && p.APIKey.TeamID != nil && p.Cost.ActualCost > 0 {
+		// Fork: Team key — 扣团队余额而非用户余额。
+		cmd.TeamID = p.APIKey.TeamID
+		cmd.TeamMemberID = p.TeamMemberID
+		cmd.TeamCost = p.Cost.ActualCost
 	} else if p.Cost.ActualCost > 0 {
 		cmd.BalanceCost = p.Cost.ActualCost
 	}
@@ -8287,6 +8320,10 @@ func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, de
 		if p.Cost.ActualCost > 0 && p.User != nil && p.APIKey != nil && p.APIKey.GroupID != nil {
 			deps.billingCacheService.QueueUpdateSubscriptionUsage(p.User.ID, *p.APIKey.GroupID, p.Cost.ActualCost)
 		}
+	} else if p.APIKey != nil && p.APIKey.TeamID != nil {
+		// Fork: Team key — DB write debited teams.balance (deductUsageBillingTeamBalance).
+		// User balance cache is irrelevant — skip QueueDeductBalance to avoid
+		// silently corrupting the user balance Redis snapshot for team members.
 	} else if p.Cost.ActualCost > 0 && p.User != nil {
 		deps.billingCacheService.QueueDeductBalance(p.User.ID, p.Cost.ActualCost)
 	}
@@ -8302,7 +8339,7 @@ func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, de
 	//   - Redis 同步:确保下次 preflight 立即看到最新 usage,把 TOCTOU 超支窗口
 	//     限制在并发 in-flight 请求数量内（旧实现的异步入队会让超支无限累积直到 worker 处理）
 	//   - DB 异步:在独立 goroutine 中走 detached context,失败用 ALERT log 触发 oncall 对账
-	if !p.IsSubscriptionBill && p.Platform != "" && p.Cost.ActualCost > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil {
+	if !p.IsSubscriptionBill && (p.APIKey == nil || p.APIKey.TeamID == nil) && p.Platform != "" && p.Cost.ActualCost > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil {
 		deps.billingCacheService.IncrementUserPlatformQuotaUsage(p.User.ID, p.Platform, p.Cost.ActualCost)
 		dbCtx, dbCancel := detachUpstreamContext(ctx)
 		userID, platform, cost := p.User.ID, p.Platform, p.Cost.ActualCost
@@ -8338,6 +8375,13 @@ func notifyBalanceLow(p *postUsageBillingParams, deps *billingDeps, result *Usag
 			slog.Error("panic in notifyBalanceLow", "recover", r)
 		}
 	}()
+	// Fork: Team key — deduction was from team.balance, not user.balance — the
+	// user's personal-balance threshold notification is meaningless here (and
+	// would spam every team member whose personal balance happens to be near 0).
+	if p.APIKey != nil && p.APIKey.TeamID != nil {
+		slog.Debug("notifyBalanceLow: skipped (team key)", "team_id", *p.APIKey.TeamID)
+		return
+	}
 	if p.IsSubscriptionBill || p.Cost.ActualCost <= 0 || p.User == nil || deps.balanceNotifyService == nil {
 		slog.Debug("notifyBalanceLow: skipped",
 			"is_subscription", p.IsSubscriptionBill,
@@ -8608,7 +8652,8 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	}
 	if apiKey.GroupID != nil && apiKey.Group != nil {
 		groupDefault := apiKey.Group.RateMultiplier
-		multiplier = s.getUserGroupRateMultiplier(ctx, user.ID, *apiKey.GroupID, groupDefault)
+		// Fork: 多级解析倍率 user_group → team_group → group default
+		multiplier = s.resolveEffectiveRateMultiplier(ctx, user.ID, apiKey.TeamID, *apiKey.GroupID, groupDefault)
 	}
 	imageMultiplier := resolveImageRateMultiplier(apiKey, multiplier)
 
@@ -8684,6 +8729,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		IsSubscriptionBill:    isSubscriptionBilling,
 		AccountRateMultiplier: accountRateMultiplier,
 		APIKeyService:         input.APIKeyService,
+		TeamMemberID:          apiKey.TeamMemberID, // Fork: team key sub_quota_used tracking
 		Platform:              quotaPlatform,
 	}, s.billingDeps(), s.usageBillingRepo)
 
