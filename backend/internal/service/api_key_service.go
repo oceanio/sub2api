@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
@@ -63,11 +64,14 @@ type APIKeyRepository interface {
 	ListByGroupID(ctx context.Context, groupID int64, params pagination.PaginationParams) ([]APIKey, *pagination.PaginationResult, error)
 	SearchAPIKeys(ctx context.Context, userID int64, keyword string, limit int) ([]APIKey, error)
 	ClearGroupIDByGroupID(ctx context.Context, groupID int64) (int64, error)
+	// ClearGroupIDByTeamAndGroup 将指定团队成员中绑定该分组的所有 API Key 的 group_id 设为 nil
+	ClearGroupIDByTeamAndGroup(ctx context.Context, teamID, groupID int64) (int64, error)
 	// UpdateGroupIDByUserAndGroup 将用户下绑定 oldGroupID 的所有 Key 迁移到 newGroupID
 	UpdateGroupIDByUserAndGroup(ctx context.Context, userID, oldGroupID, newGroupID int64) (int64, error)
 	CountByGroupID(ctx context.Context, groupID int64) (int64, error)
 	ListKeysByUserID(ctx context.Context, userID int64) ([]string, error)
 	ListKeysByGroupID(ctx context.Context, groupID int64) ([]string, error)
+	ListKeysByTeamID(ctx context.Context, teamID int64) ([]string, error)
 
 	// Quota methods
 	IncrementQuotaUsed(ctx context.Context, id int64, amount float64) (float64, error)
@@ -135,6 +139,13 @@ type APIKeyCache interface {
 	SetAuthCache(ctx context.Context, key string, entry *APIKeyAuthCacheEntry, ttl time.Duration) error
 	DeleteAuthCache(ctx context.Context, key string) error
 
+	// DeleteAuthCacheBatch performs Redis DEL on many cacheKeys in a single
+	// pipeline + emits one PUBLISH carrying the JSON-encoded array. Subscribers
+	// recognise the array shape via the leading '[' and expand it locally.
+	// Falls back to per-key calls only when the batch implementation is
+	// missing on a stub.
+	DeleteAuthCacheBatch(ctx context.Context, cacheKeys []string) error
+
 	// Pub/Sub for L1 cache invalidation across instances
 	PublishAuthCacheInvalidation(ctx context.Context, cacheKey string) error
 	SubscribeAuthCacheInvalidation(ctx context.Context, handler func(cacheKey string)) error
@@ -145,6 +156,7 @@ type APIKeyAuthCacheInvalidator interface {
 	InvalidateAuthCacheByKey(ctx context.Context, key string)
 	InvalidateAuthCacheByUserID(ctx context.Context, userID int64)
 	InvalidateAuthCacheByGroupID(ctx context.Context, groupID int64)
+	InvalidateAuthCacheByTeamID(ctx context.Context, teamID int64)
 }
 
 // CreateAPIKeyRequest 创建API Key请求
@@ -193,19 +205,23 @@ type RateLimitCacheInvalidator interface {
 }
 
 type APIKeyService struct {
-	apiKeyRepo            APIKeyRepository
-	userRepo              UserRepository
-	groupRepo             GroupRepository
-	userSubRepo           UserSubscriptionRepository
-	userGroupRateRepo     UserGroupRateRepository
-	cache                 APIKeyCache
-	rateLimitCacheInvalid RateLimitCacheInvalidator // optional: invalidate Redis rate limit cache
-	cfg                   *config.Config
-	authCacheL1           *ristretto.Cache
-	authCfg               apiKeyAuthCacheConfig
-	authGroup             singleflight.Group
-	lastUsedTouchL1       sync.Map // keyID -> nextAllowedAt(time.Time)
-	lastUsedTouchSF       singleflight.Group
+	apiKeyRepo              APIKeyRepository
+	userRepo                UserRepository
+	groupRepo               GroupRepository
+	userSubRepo             UserSubscriptionRepository
+	userGroupRateRepo       UserGroupRateRepository
+	teamGroupRateRepo       TeamGroupRateRepository     // optional: for team-group RPM snapshot population
+	teamAllowedGroupRepo    TeamAllowedGroupRepository  // optional: for team-level exclusive group access check
+	cache                   APIKeyCache
+	rateLimitCacheInvalid   RateLimitCacheInvalidator // optional: invalidate Redis rate limit cache
+	entClient               *dbent.Client             // optional: for batched transactional ops (bulk import)
+	teamMemberRepo          TeamMemberRepository      // optional: for team billing in auth snapshot
+	cfg                     *config.Config
+	authCacheL1             *ristretto.Cache
+	authCfg                 apiKeyAuthCacheConfig
+	authGroup               singleflight.Group
+	lastUsedTouchL1         sync.Map // keyID -> nextAllowedAt(time.Time)
+	lastUsedTouchSF         singleflight.Group
 }
 
 // NewAPIKeyService 创建API Key服务实例
@@ -235,6 +251,29 @@ func NewAPIKeyService(
 // Called after construction (e.g. in wire) to avoid circular dependencies.
 func (s *APIKeyService) SetRateLimitCacheInvalidator(inv RateLimitCacheInvalidator) {
 	s.rateLimitCacheInvalid = inv
+}
+
+// SetEntClient injects the ent client for service-level transactional operations.
+func (s *APIKeyService) SetEntClient(c *dbent.Client) {
+	s.entClient = c
+}
+
+// SetTeamMemberRepository injects the team member repo for auth snapshot population.
+func (s *APIKeyService) SetTeamMemberRepository(repo TeamMemberRepository) {
+	s.teamMemberRepo = repo
+}
+
+// SetTeamGroupRateRepository injects the team-group rate repo for auth snapshot
+// population (TeamGroupRPMOverride). Optional; if nil, snapshot will not carry
+// a team override and checkRPM falls through to group / user defaults.
+func (s *APIKeyService) SetTeamGroupRateRepository(repo TeamGroupRateRepository) {
+	s.teamGroupRateRepo = repo
+}
+
+// SetTeamAllowedGroupRepository injects the repo for team-level exclusive group
+// authorization checks. Optional; if nil, only user-level AllowedGroups is used.
+func (s *APIKeyService) SetTeamAllowedGroupRepository(repo TeamAllowedGroupRepository) {
+	s.teamAllowedGroupRepo = repo
 }
 
 func (s *APIKeyService) compileAPIKeyIPRules(apiKey *APIKey) {
@@ -314,15 +353,28 @@ func (s *APIKeyService) incrementAPIKeyErrorCount(ctx context.Context, userID in
 
 // canUserBindGroup 检查用户是否可以绑定指定分组
 // 对于订阅类型分组：检查用户是否有有效订阅
-// 对于标准类型分组：使用原有的 AllowedGroups 和 IsExclusive 逻辑
+// 对于标准类型分组：使用原有的 AllowedGroups 和 IsExclusive 逻辑，并兼容 team-level 授权
 func (s *APIKeyService) canUserBindGroup(ctx context.Context, user *User, group *Group) bool {
 	// 订阅类型分组：需要有效订阅
 	if group.IsSubscriptionType() {
 		_, err := s.userSubRepo.GetActiveByUserIDAndGroupID(ctx, user.ID, group.ID)
 		return err == nil // 有有效订阅则允许
 	}
-	// 标准类型分组：使用原有逻辑
-	return user.CanBindGroup(group.ID, group.IsExclusive)
+	// 标准类型分组：先检查用户个人权限
+	if user.CanBindGroup(group.ID, group.IsExclusive) {
+		return true
+	}
+	// 专属分组：用户个人未授权，再检查其所在团队是否授权了该分组
+	if group.IsExclusive && s.teamMemberRepo != nil && s.teamAllowedGroupRepo != nil {
+		membership, err := s.teamMemberRepo.GetByUserID(ctx, user.ID)
+		if err == nil && membership != nil {
+			allowed, err := s.teamAllowedGroupRepo.ExistsForTeam(ctx, membership.TeamID, group.ID)
+			if err == nil && allowed {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Create 创建API Key
@@ -395,12 +447,21 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		}
 	}
 
+	// Auto-fill team_id: if the user is an active team member, the key belongs to that team.
+	var teamID *int64
+	if s.teamMemberRepo != nil {
+		if member, err := s.teamMemberRepo.GetByUserID(ctx, userID); err == nil && member != nil {
+			teamID = &member.TeamID
+		}
+	}
+
 	// 创建API Key记录
 	apiKey := &APIKey{
 		UserID:      userID,
 		Key:         key,
 		Name:        req.Name,
 		GroupID:     req.GroupID,
+		TeamID:      teamID,
 		Status:      StatusActive,
 		IPWhitelist: req.IPWhitelist,
 		IPBlacklist: req.IPBlacklist,
@@ -737,37 +798,44 @@ func (s *APIKeyService) IncrementUsage(ctx context.Context, keyID int64) error {
 
 // GetAvailableGroups 获取用户有权限绑定的分组列表
 // 返回用户可以选择的分组：
-// - 标准类型分组：公开的（非专属）或用户被明确允许的
+// - 标准类型分组：公开的（非专属）或用户被明确允许的（含团队级授权）
 // - 订阅类型分组：用户有有效订阅的
 func (s *APIKeyService) GetAvailableGroups(ctx context.Context, userID int64) ([]Group, error) {
-	// 获取用户信息
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("get user: %w", err)
 	}
 
-	// 获取所有活跃分组
 	allGroups, err := s.groupRepo.ListActive(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list active groups: %w", err)
 	}
 
-	// 获取用户的所有有效订阅
 	activeSubscriptions, err := s.userSubRepo.ListActiveByUserID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list active subscriptions: %w", err)
 	}
 
-	// 构建订阅分组 ID 集合
 	subscribedGroupIDs := make(map[int64]bool)
 	for _, sub := range activeSubscriptions {
 		subscribedGroupIDs[sub.GroupID] = true
 	}
 
-	// 过滤出用户有权限的分组
+	// 预加载团队级专属分组授权，避免在 per-group 循环中重复查 DB
+	teamAuthorizedGroupIDs := make(map[int64]bool)
+	if s.teamMemberRepo != nil && s.teamAllowedGroupRepo != nil {
+		if membership, err := s.teamMemberRepo.GetByUserID(ctx, userID); err == nil && membership != nil {
+			if ids, err := s.teamAllowedGroupRepo.ListByTeamID(ctx, membership.TeamID); err == nil {
+				for _, id := range ids {
+					teamAuthorizedGroupIDs[id] = true
+				}
+			}
+		}
+	}
+
 	availableGroups := make([]Group, 0)
 	for _, group := range allGroups {
-		if s.canUserBindGroupInternal(user, &group, subscribedGroupIDs) {
+		if s.canUserBindGroupInternal(user, &group, subscribedGroupIDs, teamAuthorizedGroupIDs) {
 			availableGroups = append(availableGroups, group)
 		}
 	}
@@ -775,14 +843,21 @@ func (s *APIKeyService) GetAvailableGroups(ctx context.Context, userID int64) ([
 	return availableGroups, nil
 }
 
-// canUserBindGroupInternal 内部方法，检查用户是否可以绑定分组（使用预加载的订阅数据）
-func (s *APIKeyService) canUserBindGroupInternal(user *User, group *Group, subscribedGroupIDs map[int64]bool) bool {
+// canUserBindGroupInternal 内部方法，检查用户是否可以绑定分组（使用预加载的订阅/团队数据）
+func (s *APIKeyService) canUserBindGroupInternal(user *User, group *Group, subscribedGroupIDs, teamAuthorizedGroupIDs map[int64]bool) bool {
 	// 订阅类型分组：需要有效订阅
 	if group.IsSubscriptionType() {
 		return subscribedGroupIDs[group.ID]
 	}
-	// 标准类型分组：使用原有逻辑
-	return user.CanBindGroup(group.ID, group.IsExclusive)
+	// 标准类型分组：先检查用户个人权限
+	if user.CanBindGroup(group.ID, group.IsExclusive) {
+		return true
+	}
+	// 专属分组：检查团队级授权
+	if group.IsExclusive {
+		return teamAuthorizedGroupIDs[group.ID]
+	}
+	return false
 }
 
 func (s *APIKeyService) SearchAPIKeys(ctx context.Context, userID int64, keyword string, limit int) ([]APIKey, error) {

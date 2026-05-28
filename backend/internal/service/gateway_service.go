@@ -92,6 +92,13 @@ var (
 	userGroupRateCacheSFSharedTotal atomic.Int64
 	userGroupRateCacheFallbackTotal atomic.Int64
 
+	// Fork: team-group rate resolver 镜像同款指标
+	teamGroupRateCacheHitTotal      atomic.Int64
+	teamGroupRateCacheMissTotal     atomic.Int64
+	teamGroupRateCacheLoadTotal     atomic.Int64
+	teamGroupRateCacheSFSharedTotal atomic.Int64
+	teamGroupRateCacheFallbackTotal atomic.Int64
+
 	modelsListCacheHitTotal   atomic.Int64
 	modelsListCacheMissTotal  atomic.Int64
 	modelsListCacheStoreTotal atomic.Int64
@@ -566,6 +573,7 @@ type GatewayService struct {
 	userRepo              UserRepository
 	userSubRepo           UserSubscriptionRepository
 	userGroupRateRepo     UserGroupRateRepository
+	teamGroupRateRepo     TeamGroupRateRepository // Fork: team-level rate overrides
 	cache                 GatewayCache
 	digestStore           *DigestSessionStore
 	cfg                   *config.Config
@@ -583,6 +591,9 @@ type GatewayService struct {
 	userGroupRateResolver *userGroupRateResolver
 	userGroupRateCache    *gocache.Cache
 	userGroupRateSF       singleflight.Group
+	teamGroupRateResolver *teamGroupRateResolver // Fork
+	teamGroupRateCache    *gocache.Cache         // Fork
+	teamGroupRateSF       singleflight.Group     // Fork
 	modelsListCache       *gocache.Cache
 	modelsListCacheTTL    time.Duration
 	settingService        *SettingService
@@ -606,6 +617,7 @@ func NewGatewayService(
 	userRepo UserRepository,
 	userSubRepo UserSubscriptionRepository,
 	userGroupRateRepo UserGroupRateRepository,
+	teamGroupRateRepo TeamGroupRateRepository, // Fork: team-group rate
 	cache GatewayCache,
 	cfg *config.Config,
 	schedulerSnapshot *SchedulerSnapshotService,
@@ -638,6 +650,7 @@ func NewGatewayService(
 		userRepo:              userRepo,
 		userSubRepo:           userSubRepo,
 		userGroupRateRepo:     userGroupRateRepo,
+		teamGroupRateRepo:     teamGroupRateRepo, // Fork
 		cache:                 cache,
 		digestStore:           digestStore,
 		cfg:                   cfg,
@@ -668,6 +681,14 @@ func NewGatewayService(
 		svc.userGroupRateCache,
 		userGroupRateTTL,
 		&svc.userGroupRateSF,
+		"service.gateway",
+	)
+	// Fork: team-group rate resolver 镜像 user 版（自带 cache + singleflight）
+	svc.teamGroupRateResolver = newTeamGroupRateResolver(
+		teamGroupRateRepo,
+		svc.teamGroupRateCache,
+		userGroupRateTTL,
+		&svc.teamGroupRateSF,
 		"service.gateway",
 	)
 	svc.debugModelRouting.Store(parseDebugEnvBool(os.Getenv("SUB2API_DEBUG_MODEL_ROUTING")))

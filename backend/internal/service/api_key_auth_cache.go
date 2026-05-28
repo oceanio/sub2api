@@ -8,6 +8,12 @@ type APIKeyAuthSnapshot struct {
 	APIKeyID    int64                    `json:"api_key_id"`
 	UserID      int64                    `json:"user_id"`
 	GroupID     *int64                   `json:"group_id,omitempty"`
+	// Fork: team key 相关字段
+	TeamID               *int64  `json:"team_id,omitempty"`        // non-nil = team key（扣 team 余额）
+	TeamMemberID         *int64  `json:"team_member_id,omitempty"` // team_members.id，用于子配额跟踪
+	SubQuota             float64 `json:"sub_quota,omitempty"`      // 成员子配额上限
+	SubQuotaUsed         float64 `json:"sub_quota_used,omitempty"` // 当前已用
+	TeamGroupRPMOverride *int    `json:"team_group_rpm_override,omitempty"`
 	Name        string                   `json:"name"`
 	Status      string                   `json:"status"`
 	IPWhitelist []string                 `json:"ip_whitelist,omitempty"`

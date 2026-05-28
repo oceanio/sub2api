@@ -99,6 +99,15 @@ var ProviderSet = wire.NewSet(
 	// Request Debug Log (fork)
 	NewRequestDebugLogRepository,
 
+	// Team management (fork)
+	NewTeamRepository,
+	NewTeamMemberRepository,
+	NewTeamAdminRepository,
+	NewTeamBalanceLogRepository,
+	NewTeamGroupRateRepository,
+	NewTeamAllowedGroupRepository,
+	NewTeamUsageRepository,
+
 	// Cache implementations
 	NewGatewayCache,
 	NewBillingCache,

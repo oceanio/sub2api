@@ -245,6 +245,9 @@ func (i *contentModerationTestAuthCacheInvalidator) InvalidateAuthCacheByUserID(
 func (i *contentModerationTestAuthCacheInvalidator) InvalidateAuthCacheByGroupID(ctx context.Context, groupID int64) {
 }
 
+func (i *contentModerationTestAuthCacheInvalidator) InvalidateAuthCacheByTeamID(ctx context.Context, teamID int64) {
+}
+
 func (c *contentModerationTestHashCache) RecordFlaggedInputHash(ctx context.Context, inputHash string) error {
 	if c.hashes == nil {
 		c.hashes = map[string]struct{}{}

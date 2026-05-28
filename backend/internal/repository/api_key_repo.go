@@ -44,6 +44,7 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 		SetName(key.Name).
 		SetStatus(key.Status).
 		SetNillableGroupID(key.GroupID).
+		SetNillableTeamID(key.TeamID).
 		SetNillableLastUsedAt(key.LastUsedAt).
 		SetQuota(key.Quota).
 		SetQuotaUsed(key.QuotaUsed).
@@ -125,6 +126,7 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 			apikey.FieldID,
 			apikey.FieldUserID,
 			apikey.FieldGroupID,
+			apikey.FieldTeamID,
 			apikey.FieldName,
 			apikey.FieldStatus,
 			apikey.FieldIPWhitelist,
@@ -183,7 +185,6 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				group.FieldAllowMessagesDispatch,
 				group.FieldDefaultMappedModel,
 				group.FieldMessagesDispatchModelConfig,
-				group.FieldModelsListConfig,
 				group.FieldRpmLimit,
 			)
 		}).
@@ -324,6 +325,13 @@ func (r *apiKeyRepository) ListByUserID(ctx context.Context, userID int64, param
 			q = q.Where(apikey.GroupIDEQ(*filters.GroupID))
 		}
 	}
+	if filters.TeamID != nil {
+		if *filters.TeamID == 0 {
+			q = q.Where(apikey.TeamIDIsNil())
+		} else {
+			q = q.Where(apikey.TeamIDEQ(*filters.TeamID))
+		}
+	}
 
 	total, err := q.Count(ctx)
 	if err != nil {
@@ -462,6 +470,24 @@ func (r *apiKeyRepository) ClearGroupIDByGroupID(ctx context.Context, groupID in
 	return int64(n), err
 }
 
+// ClearGroupIDByTeamAndGroup 将指定团队所有成员中绑定 groupID 的 API Key 的 group_id 清为 nil。
+// 撤销团队专属分组授权时调用，确保已创建的 key 立即失去该分组访问权。
+func (r *apiKeyRepository) ClearGroupIDByTeamAndGroup(ctx context.Context, teamID, groupID int64) (int64, error) {
+	result, err := r.sql.ExecContext(ctx, `
+		UPDATE api_keys SET group_id = NULL, updated_at = NOW()
+		WHERE group_id = $1
+		  AND deleted_at IS NULL
+		  AND user_id IN (
+		    SELECT user_id FROM team_members WHERE team_id = $2 AND deleted_at IS NULL
+		  )
+	`, groupID, teamID)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := result.RowsAffected()
+	return n, nil
+}
+
 // UpdateGroupIDByUserAndGroup 将用户下绑定 oldGroupID 的所有 Key 迁移到 newGroupID
 func (r *apiKeyRepository) UpdateGroupIDByUserAndGroup(ctx context.Context, userID, oldGroupID, newGroupID int64) (int64, error) {
 	client := clientFromContext(ctx, r.client)
@@ -492,6 +518,21 @@ func (r *apiKeyRepository) ListKeysByUserID(ctx context.Context, userID int64) (
 func (r *apiKeyRepository) ListKeysByGroupID(ctx context.Context, groupID int64) ([]string, error) {
 	keys, err := r.activeQuery().
 		Where(apikey.GroupIDEQ(groupID)).
+		Select(apikey.FieldKey).
+		Strings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return keys, nil
+}
+
+// ListKeysByTeamID returns active api_key strings for keys belonging to the
+// given team. Used by InvalidateAuthCacheByTeamID to flush auth-cache
+// snapshots after a sys-admin-only team-scoped config change (e.g. team_group
+// rpm_override edit).
+func (r *apiKeyRepository) ListKeysByTeamID(ctx context.Context, teamID int64) ([]string, error) {
+	keys, err := r.activeQuery().
+		Where(apikey.TeamIDEQ(teamID)).
 		Select(apikey.FieldKey).
 		Strings(ctx)
 	if err != nil {
@@ -630,6 +671,7 @@ func apiKeyEntityToService(m *dbent.APIKey) *service.APIKey {
 		CreatedAt:     m.CreatedAt,
 		UpdatedAt:     m.UpdatedAt,
 		GroupID:       m.GroupID,
+		TeamID:        m.TeamID,
 		Quota:         m.Quota,
 		QuotaUsed:     m.QuotaUsed,
 		ExpiresAt:     m.ExpiresAt,
@@ -724,7 +766,6 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		RequirePrivacySet:               g.RequirePrivacySet,
 		DefaultMappedModel:              g.DefaultMappedModel,
 		MessagesDispatchModelConfig:     g.MessagesDispatchModelConfig,
-		ModelsListConfig:                g.ModelsListConfig,
 		RPMLimit:                        g.RpmLimit,
 		CreatedAt:                       g.CreatedAt,
 		UpdatedAt:                       g.UpdatedAt,

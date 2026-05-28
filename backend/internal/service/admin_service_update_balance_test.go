@@ -47,6 +47,7 @@ func (s *balanceRedeemRepoStub) Create(ctx context.Context, code *RedeemCode) er
 type authCacheInvalidatorStub struct {
 	userIDs  []int64
 	groupIDs []int64
+	teamIDs  []int64
 	keys     []string
 }
 
@@ -60,6 +61,10 @@ func (s *authCacheInvalidatorStub) InvalidateAuthCacheByUserID(ctx context.Conte
 
 func (s *authCacheInvalidatorStub) InvalidateAuthCacheByGroupID(ctx context.Context, groupID int64) {
 	s.groupIDs = append(s.groupIDs, groupID)
+}
+
+func (s *authCacheInvalidatorStub) InvalidateAuthCacheByTeamID(ctx context.Context, teamID int64) {
+	s.teamIDs = append(s.teamIDs, teamID)
 }
 
 func TestAdminService_UpdateUserBalance_InvalidatesAuthCache(t *testing.T) {

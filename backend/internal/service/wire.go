@@ -418,8 +418,9 @@ func ProvideBillingCacheService(
 	rateRepo UserGroupRateRepository,
 	cfg *config.Config,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
+	teamRepo TeamRepository, // Fork: team-key 计费需要查 team
 ) *BillingCacheService {
-	return NewBillingCacheService(cache, userRepo, subRepo, apiKeyRepo, rpmCache, rateRepo, cfg, userPlatformQuotaRepo)
+	return NewBillingCacheService(cache, userRepo, subRepo, apiKeyRepo, rpmCache, rateRepo, cfg, userPlatformQuotaRepo, teamRepo)
 }
 
 // ProvideAPIKeyService wires APIKeyService and connects rate-limit cache invalidation.
@@ -432,8 +433,17 @@ func ProvideAPIKeyService(
 	cache APIKeyCache,
 	cfg *config.Config,
 	billingCacheService *BillingCacheService,
+	// Fork: team 相关注入（通过 Setter 注入避免破坏 NewAPIKeyService 签名）
+	entClient *dbent.Client,
+	teamMemberRepo TeamMemberRepository,
+	teamGroupRateRepo TeamGroupRateRepository,
+	teamAllowedGroupRepo TeamAllowedGroupRepository,
 ) *APIKeyService {
 	svc := NewAPIKeyService(apiKeyRepo, userRepo, groupRepo, userSubRepo, userGroupRateRepo, cache, cfg)
+	svc.SetEntClient(entClient)
+	svc.SetTeamMemberRepository(teamMemberRepo)
+	svc.SetTeamGroupRateRepository(teamGroupRateRepo)
+	svc.SetTeamAllowedGroupRepository(teamAllowedGroupRepo)
 	svc.SetRateLimitCacheInvalidator(billingCacheService)
 	return svc
 }

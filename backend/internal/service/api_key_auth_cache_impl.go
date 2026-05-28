@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -14,7 +15,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 11 // v11: reload snapshots for custom models_list_config
+const apiKeyAuthSnapshotVersion = 12 // v12: api_key_repo.GetByKeyForAuth now selects team_id → force reload so cached snapshots get the field populated
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -96,8 +97,21 @@ func (s *APIKeyService) StartAuthCacheInvalidationSubscriber(ctx context.Context
 	if s.cache == nil || s.authCacheL1 == nil {
 		return
 	}
-	if err := s.cache.SubscribeAuthCacheInvalidation(ctx, func(cacheKey string) {
-		s.authCacheL1.Del(cacheKey)
+	if err := s.cache.SubscribeAuthCacheInvalidation(ctx, func(payload string) {
+		// Two payload shapes coexist (for in-place upgrades): a single cacheKey
+		// string, OR a JSON-encoded []string array (used by DeleteAuthCacheBatch).
+		// Detect by the leading '['.
+		if len(payload) > 0 && payload[0] == '[' {
+			var keys []string
+			if err := json.Unmarshal([]byte(payload), &keys); err == nil {
+				for _, k := range keys {
+					s.authCacheL1.Del(k)
+				}
+				return
+			}
+			// Fall through to single-key path if unmarshal fails (corrupted msg).
+		}
+		s.authCacheL1.Del(payload)
 	}); err != nil {
 		// Log but don't fail - L1 cache will still work, just without cross-instance invalidation
 		slog.Warn("failed to start auth cache invalidation subscriber", "error", err)
@@ -245,6 +259,29 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 		}
 		// 查询失败或无 override 时留 nil，checkRPM 会回退到 DB 查询
 	}
+	// Populate team billing fields if this is a team key.
+	if apiKey.TeamID != nil && s.teamMemberRepo != nil {
+		member, err := s.teamMemberRepo.GetByUserID(ctx, apiKey.UserID)
+		if err == nil && member != nil && member.TeamID == *apiKey.TeamID {
+			memberID := member.ID
+			snapshot.TeamID = apiKey.TeamID
+			snapshot.TeamMemberID = &memberID
+			snapshot.SubQuota = member.SubQuota
+			snapshot.SubQuotaUsed = member.SubQuotaUsed
+		}
+	}
+	// Populate (team, group) RPM override snapshot so checkRPM hot path
+	// avoids a DB round-trip. Mirrors the user_group override population
+	// above. Cache is flushed when sys admin edits team_group_rate_multipliers
+	// (via InvalidateAuthCacheByTeamID), so no lazy DB fallback needed in
+	// checkRPM.
+	if apiKey.TeamID != nil && *apiKey.TeamID > 0 && apiKey.GroupID != nil && *apiKey.GroupID > 0 && s.teamGroupRateRepo != nil {
+		teamOverride, err := s.teamGroupRateRepo.GetRPMOverrideByTeamAndGroup(ctx, *apiKey.TeamID, *apiKey.GroupID)
+		if err == nil && teamOverride != nil {
+			snapshot.TeamGroupRPMOverride = teamOverride
+		}
+	}
+
 	if apiKey.Group != nil {
 		snapshot.Group = &APIKeyAuthGroupSnapshot{
 			ID:                              apiKey.Group.ID,
@@ -272,7 +309,6 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			AllowMessagesDispatch:           apiKey.Group.AllowMessagesDispatch,
 			DefaultMappedModel:              apiKey.Group.DefaultMappedModel,
 			MessagesDispatchModelConfig:     apiKey.Group.MessagesDispatchModelConfig,
-			ModelsListConfig:                apiKey.Group.ModelsListConfig,
 			RPMLimit:                        apiKey.Group.RPMLimit,
 		}
 	}
@@ -284,10 +320,15 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 		return nil
 	}
 	apiKey := &APIKey{
-		ID:          snapshot.APIKeyID,
-		UserID:      snapshot.UserID,
-		GroupID:     snapshot.GroupID,
-		Key:         key,
+		ID:           snapshot.APIKeyID,
+		UserID:       snapshot.UserID,
+		GroupID:      snapshot.GroupID,
+		TeamID:       snapshot.TeamID,
+		TeamMemberID: snapshot.TeamMemberID,
+		SubQuota:     snapshot.SubQuota,
+		SubQuotaUsed: snapshot.SubQuotaUsed,
+		TeamGroupRPMOverride: snapshot.TeamGroupRPMOverride,
+		Key:          key,
 		Name:        snapshot.Name,
 		Status:      snapshot.Status,
 		IPWhitelist: snapshot.IPWhitelist,
@@ -343,7 +384,6 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			AllowMessagesDispatch:           snapshot.Group.AllowMessagesDispatch,
 			DefaultMappedModel:              snapshot.Group.DefaultMappedModel,
 			MessagesDispatchModelConfig:     snapshot.Group.MessagesDispatchModelConfig,
-			ModelsListConfig:                snapshot.Group.ModelsListConfig,
 			RPMLimit:                        snapshot.Group.RPMLimit,
 		}
 	}

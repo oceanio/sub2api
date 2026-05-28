@@ -181,9 +181,13 @@ type UserBreakdownDimension struct {
 	Endpoint     string // filter by endpoint value (non-empty to enable)
 	EndpointType string // "inbound", "upstream", or "path"
 	// Additional filter conditions
-	UserID      int64  // filter by user_id (>0 to enable)
-	APIKeyID    int64  // filter by api_key_id (>0 to enable)
-	AccountID   int64  // filter by account_id (>0 to enable)
+	UserID    int64 // filter by user_id (>0 to enable)
+	APIKeyID  int64 // filter by api_key_id (>0 to enable)
+	AccountID int64 // filter by account_id (>0 to enable)
+	// TeamID restricts results to members of the given team via a subquery on
+	// team_members (>0 to enable). Used by the team-scoped drill-down so a
+	// team admin can only see breakdowns scoped to their team's members.
+	TeamID      int64
 	RequestType *int16 // filter by request_type (non-nil to enable)
 	Stream      *bool  // filter by stream flag (non-nil to enable)
 	BillingType *int8  // filter by billing_type (non-nil to enable)
@@ -261,8 +265,14 @@ type PlatformDashboardStats struct {
 
 // UsageLogFilters represents filters for usage log queries
 type UsageLogFilters struct {
-	UserID      int64
+	UserID int64
+	// TeamID restricts results to users belonging to the given team. Resolved
+	// via a `user_id IN (SELECT ... FROM team_members)` subquery so the query
+	// text stays constant regardless of team size (avoids the prepare-time and
+	// planner cost of inlining N user_ids).
+	TeamID      *int64
 	APIKeyID    int64
+	APIKeyName  string // partial match on api_keys.name (joined query, team usage page)
 	AccountID   int64
 	GroupID     int64
 	Model       string
@@ -313,6 +323,8 @@ type BatchAPIKeyUsageStats struct {
 	APIKeyID        int64   `json:"api_key_id"`
 	TodayActualCost float64 `json:"today_actual_cost"`
 	TotalActualCost float64 `json:"total_actual_cost"`
+	TodayTokens     int64   `json:"today_tokens"`
+	TotalTokens     int64   `json:"total_tokens"`
 }
 
 // AccountUsageHistory represents daily usage history for an account

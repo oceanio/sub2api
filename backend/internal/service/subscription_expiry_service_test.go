@@ -49,6 +49,9 @@ func (r *subscriptionExpiryRepoStub) ListActiveByUserID(context.Context, int64) 
 func (r *subscriptionExpiryRepoStub) ListByGroupID(context.Context, int64, pagination.PaginationParams) ([]UserSubscription, *pagination.PaginationResult, error) {
 	return nil, nil, nil
 }
+func (r *subscriptionExpiryRepoStub) ListByTeamID(context.Context, int64, UserSubscriptionTeamFilters, pagination.PaginationParams) ([]UserSubscription, *pagination.PaginationResult, error) {
+	return nil, nil, nil
+}
 
 func (r *subscriptionExpiryRepoStub) List(context.Context, pagination.PaginationParams, *int64, *int64, string, string, string, string) ([]UserSubscription, *pagination.PaginationResult, error) {
 	r.listCalls++

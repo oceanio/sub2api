@@ -2,10 +2,12 @@ package repository
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -113,15 +115,30 @@ func (r *userSubscriptionRepository) Update(ctx context.Context, sub *service.Us
 		SetStartsAt(sub.StartsAt).
 		SetExpiresAt(sub.ExpiresAt).
 		SetStatus(sub.Status).
-		SetNillableDailyWindowStart(sub.DailyWindowStart).
-		SetNillableWeeklyWindowStart(sub.WeeklyWindowStart).
-		SetNillableMonthlyWindowStart(sub.MonthlyWindowStart).
 		SetDailyUsageUsd(sub.DailyUsageUSD).
 		SetWeeklyUsageUsd(sub.WeeklyUsageUSD).
 		SetMonthlyUsageUsd(sub.MonthlyUsageUSD).
 		SetNillableAssignedBy(sub.AssignedBy).
 		SetAssignedAt(sub.AssignedAt).
 		SetNotes(sub.Notes)
+
+	// 窗口起点用 *time.Time 表示「窗口未激活」：nil = 清空，非 nil = 写入。
+	// 续费时 nil 让 CheckAndActivateWindow 在首次发消息时锚定，符合 Anthropic 5h 语义。
+	if sub.DailyWindowStart != nil {
+		builder.SetDailyWindowStart(*sub.DailyWindowStart)
+	} else {
+		builder.ClearDailyWindowStart()
+	}
+	if sub.WeeklyWindowStart != nil {
+		builder.SetWeeklyWindowStart(*sub.WeeklyWindowStart)
+	} else {
+		builder.ClearWeeklyWindowStart()
+	}
+	if sub.MonthlyWindowStart != nil {
+		builder.SetMonthlyWindowStart(*sub.MonthlyWindowStart)
+	} else {
+		builder.ClearMonthlyWindowStart()
+	}
 
 	updated, err := builder.Save(ctx)
 	if err == nil {
@@ -149,6 +166,36 @@ func (r *userSubscriptionRepository) ListByUserID(ctx context.Context, userID in
 		return nil, err
 	}
 	return userSubscriptionEntitiesToService(subs), nil
+}
+
+func (r *userSubscriptionRepository) ListByTeamID(ctx context.Context, teamID int64, filters service.UserSubscriptionTeamFilters, params pagination.PaginationParams) ([]service.UserSubscription, *pagination.PaginationResult, error) {
+	client := clientFromContext(ctx, r.client)
+	q := client.UserSubscription.Query().Where(usersubscription.TeamIDEQ(teamID))
+	if filters.Status != "" {
+		q = q.Where(usersubscription.StatusEQ(filters.Status))
+	}
+	if filters.GroupID != nil {
+		q = q.Where(usersubscription.GroupIDEQ(*filters.GroupID))
+	}
+	if search := strings.TrimSpace(filters.Search); search != "" {
+		q = q.Where(usersubscription.HasUserWith(user.EmailContainsFold(search)))
+	}
+
+	total, err := q.Count(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	subs, err := q.
+		WithUser().
+		WithGroup().
+		Order(dbent.Desc(usersubscription.FieldCreatedAt)).
+		Offset(params.Offset()).
+		Limit(params.Limit()).
+		All(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return userSubscriptionEntitiesToService(subs), paginationResultFromTotal(int64(total), params), nil
 }
 
 func (r *userSubscriptionRepository) ListActiveByUserID(ctx context.Context, userID int64) ([]service.UserSubscription, error) {
@@ -433,6 +480,7 @@ func userSubscriptionEntityToService(m *dbent.UserSubscription) *service.UserSub
 		ID:                 m.ID,
 		UserID:             m.UserID,
 		GroupID:            m.GroupID,
+		TeamID:             m.TeamID,
 		StartsAt:           m.StartsAt,
 		ExpiresAt:          m.ExpiresAt,
 		Status:             m.Status,

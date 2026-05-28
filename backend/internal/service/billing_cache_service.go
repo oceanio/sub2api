@@ -105,6 +105,7 @@ type BillingCacheService struct {
 	apiKeyRateLimitLoader apiKeyRateLimitLoader
 	userRPMCache          UserRPMCache
 	userGroupRateRepo     UserGroupRateRepository
+	teamRepo              TeamRepository // injected via constructor; nil makes team-balance preflight a no-op
 	cfg                   *config.Config
 	circuitBreaker        *billingCircuitBreaker
 	userPlatformQuotaRepo UserPlatformQuotaRepository
@@ -133,6 +134,7 @@ func NewBillingCacheService(
 	userGroupRateRepo UserGroupRateRepository,
 	cfg *config.Config,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
+	teamRepo TeamRepository,
 ) *BillingCacheService {
 	svc := &BillingCacheService{
 		cache:                 cache,
@@ -143,6 +145,7 @@ func NewBillingCacheService(
 		userGroupRateRepo:     userGroupRateRepo,
 		cfg:                   cfg,
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
+		teamRepo:              teamRepo,
 	}
 	svc.circuitBreaker = newBillingCircuitBreaker(cfg.Billing.CircuitBreaker)
 	svc.startCacheWriteWorkers()
@@ -713,21 +716,31 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 		return ErrBillingServiceUnavailable
 	}
 
-	// 判断计费模式
+	// Team key billing: check team balance + per-member sub_quota.
 	isSubscriptionMode := group != nil && group.IsSubscriptionType() && subscription != nil
-
-	if isSubscriptionMode {
-		if err := s.checkSubscriptionEligibility(ctx, user.ID, group, subscription); err != nil {
+	if apiKey != nil && apiKey.TeamID != nil {
+		if err := s.checkTeamBillingEligibility(ctx, apiKey); err != nil {
 			return err
 		}
+		// RPM checks still apply — fall through to checkRPM.
 	} else {
-		if err := s.checkBalanceEligibility(ctx, user.ID); err != nil {
-			return err
+		if isSubscriptionMode {
+			if err := s.checkSubscriptionEligibility(ctx, user.ID, group, subscription); err != nil {
+				return err
+			}
+		} else {
+			if err := s.checkBalanceEligibility(ctx, user.ID); err != nil {
+				return err
+			}
 		}
 	}
 
-	// user × platform quota 仅在 standard（余额）模式生效；订阅模式豁免
-	if !isSubscriptionMode {
+	// user × platform quota 仅在 standard（余额）模式生效；订阅模式豁免。
+	// Team key 同样豁免：team key 的消费走团队池（checkTeamBillingEligibility 已覆盖），
+	// 不应再扣到 key 持有人的个人 platform quota 头上——否则团队请求会拉爆持有人
+	// 的个人窗口用量，导致明明没在个人侧消费却被限流。
+	isTeamKey := apiKey != nil && apiKey.TeamID != nil
+	if !isSubscriptionMode && !isTeamKey {
 		if err := s.checkUserPlatformQuotaEligibility(ctx, user.ID, platform); err != nil {
 			return err
 		}
@@ -741,30 +754,54 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 	}
 
 	// RPM 限流：级联回落（Override → Group → User），放在最后以避免为注定失败的请求增加计数。
-	if err := s.checkRPM(ctx, user, group); err != nil {
+	if err := s.checkRPM(ctx, apiKey, user, group); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// checkRPM 执行并行 RPM 限流，所有适用的限制同时生效，任一超限即拒绝：
+// checkTeamBillingEligibility checks team balance > 0 and sub_quota not exhausted.
+// Mirrors checkBalanceEligibility for the personal path: deduct-after-fact, rely on
+// next-request preflight to reject when balance goes non-positive.
+func (s *BillingCacheService) checkTeamBillingEligibility(ctx context.Context, apiKey *APIKey) error {
+	// Sub-quota check: if limit > 0 and used >= limit, deny.
+	if apiKey.SubQuota > 0 && apiKey.SubQuotaUsed >= apiKey.SubQuota {
+		return ErrInsufficientBalance // reuse; frontend can interpret as "sub-quota exhausted"
+	}
+	// Team balance check. Reads from DB (no Redis cache layer for teams yet).
+	if s.teamRepo == nil || apiKey.TeamID == nil {
+		return nil
+	}
+	team, err := s.teamRepo.GetByID(ctx, *apiKey.TeamID)
+	if err != nil {
+		return ErrBillingServiceUnavailable.WithCause(err)
+	}
+	if team.Balance <= 0 {
+		return ErrInsufficientBalance
+	}
+	return nil
+}
+
+// checkRPM 执行 RPM 限流，多级级联：
 //
-//  1. (用户, 分组) rpm_override       — 最细粒度：管理员为特定用户在特定分组设定的专属限额。
+//  1. (用户, 分组) rpm_override        — 最细粒度：管理员为特定用户在特定分组设定的专属限额。
 //     override=0 表示该用户在该分组免检（绿灯），但 user 级全局上限仍然生效。
-//  2. group.rpm_limit                 — 分组级：该分组的统一 RPM 容量（仅当无 override 时生效）。
-//  3. user.rpm_limit                  — 用户级全局硬上限：无论 override/group 如何配置，始终生效。
+//  2. (团队, 分组) rpm_override        — 当 apiKey.team_id != nil 且 user 维度未命中时生效。
+//     override=0 表示该团队的成员在该分组免检；同样 user 级上限仍生效。计数桶 key 仍是
+//     (user_id, group_id)，团队仅向 limit 值"供货"。
+//  3. group.rpm_limit                  — 分组级：仅当 user/team override 都未命中时生效。
+//  4. user.rpm_limit                   — 用户级全局硬上限：无论上面如何配置，始终生效。
 //
-// 与旧版"级联互斥"设计不同，新版确保 user.rpm_limit 作为全局天花板不会被 group 或 override 覆盖。
 // Redis 故障一律 fail-open（打 warning，不阻塞业务）。
-func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *Group) error {
+func (s *BillingCacheService) checkRPM(ctx context.Context, apiKey *APIKey, user *User, group *Group) error {
 	if s == nil || s.userRPMCache == nil || user == nil {
 		return nil
 	}
 
-	// ── 第一层：分组级检查（override 或 group.rpm_limit） ──
+	// ── 第一层：分组级检查（user override → team override → group.rpm_limit） ──
 	if group != nil {
-		// 解析 override：优先从 auth cache snapshot，nil 时回退 DB。
+		// 解析 user 维度 override：优先从 auth cache snapshot，nil 时回退 DB。
 		var override *int
 		if user.UserGroupRPMOverride != nil {
 			override = user.UserGroupRPMOverride
@@ -781,8 +818,15 @@ func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *G
 			}
 		}
 
+		// 没有 user override 且这是团队 key 时，再尝试 (team, group) override。
+		// snapshot 已嵌入，DB 不回退（sys admin 改完会 InvalidateAuthCacheByTeamID
+		// 清掉所有 team 下 api_key 缓存，下次自动重建）。
+		if override == nil && apiKey != nil && apiKey.TeamGroupRPMOverride != nil {
+			override = apiKey.TeamGroupRPMOverride
+		}
+
 		if override != nil {
-			// override=0 → 该用户在该分组免检（但 user 级仍会在下面检查）。
+			// override=0 → 在该分组免检（但 user 级仍会在下面检查）。
 			if *override > 0 {
 				count, incErr := s.userRPMCache.IncrementUserGroupRPM(ctx, user.ID, group.ID)
 				if incErr != nil {
