@@ -39,6 +39,7 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 const (
@@ -9169,15 +9170,17 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		}
 		setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
 
-		// 记录上游错误摘要便于排障（不回显请求内容）
+		// 记录上游错误摘要便于排障（不回显请求内容）。
+		// 用 logger.L().Warn 显式 WARN 级别 —— 避免 LegacyPrintf 因消息含 "error"
+		// 关键字被路由到 ERROR (count_tokens 隔离后这不是真错误，不该污染 ERROR 流)。
 		if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
-			logger.LegacyPrintf("service.gateway",
-				"count_tokens upstream error %d (account=%d platform=%s type=%s) [isolated, account state unchanged]: %s",
-				resp.StatusCode,
-				account.ID,
-				account.Platform,
-				account.Type,
-				truncateForLog(respBody, s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes),
+			logger.L().Warn("count_tokens upstream non-2xx (account state unchanged)",
+				zap.String("component", "service.gateway"),
+				zap.Int("status", resp.StatusCode),
+				zap.Int64("account_id", account.ID),
+				zap.String("platform", account.Platform),
+				zap.String("type", account.Type),
+				zap.String("body", truncateForLog(respBody, s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)),
 			)
 		}
 

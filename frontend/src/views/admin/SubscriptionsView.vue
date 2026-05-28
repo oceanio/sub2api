@@ -1358,7 +1358,8 @@ const formatResetTime = (windowStart: string | null, period: 'daily' | 'weekly' 
   let resetTime: Date
   switch (period) {
     case 'daily':
-      resetTime = new Date(start.getTime() + 24 * 60 * 60 * 1000)
+      // 与后端 user_subscription.NeedsDailyResetAt 对齐：5h rolling window
+      resetTime = new Date(start.getTime() + 5 * 60 * 60 * 1000)
       break
     case 'weekly':
       resetTime = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000)
