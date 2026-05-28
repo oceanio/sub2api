@@ -20,6 +20,7 @@ type authRepoStub struct {
 	getByKeyForAuth   func(ctx context.Context, key string) (*APIKey, error)
 	listKeysByUserID  func(ctx context.Context, userID int64) ([]string, error)
 	listKeysByGroupID func(ctx context.Context, groupID int64) ([]string, error)
+	listKeysByTeamID  func(ctx context.Context, teamID int64) ([]string, error)
 }
 
 func (s *authRepoStub) Create(ctx context.Context, key *APIKey) error {
@@ -80,6 +81,9 @@ func (s *authRepoStub) SearchAPIKeys(ctx context.Context, userID int64, keyword 
 func (s *authRepoStub) ClearGroupIDByGroupID(ctx context.Context, groupID int64) (int64, error) {
 	panic("unexpected ClearGroupIDByGroupID call")
 }
+func (s *authRepoStub) ClearGroupIDByTeamAndGroup(ctx context.Context, teamID, groupID int64) (int64, error) {
+	panic("unexpected ClearGroupIDByTeamAndGroup call")
+}
 func (s *authRepoStub) UpdateGroupIDByUserAndGroup(ctx context.Context, userID, oldGroupID, newGroupID int64) (int64, error) {
 	panic("unexpected UpdateGroupIDByUserAndGroup call")
 }
@@ -100,6 +104,13 @@ func (s *authRepoStub) ListKeysByGroupID(ctx context.Context, groupID int64) ([]
 		panic("unexpected ListKeysByGroupID call")
 	}
 	return s.listKeysByGroupID(ctx, groupID)
+}
+
+func (s *authRepoStub) ListKeysByTeamID(ctx context.Context, teamID int64) ([]string, error) {
+	if s.listKeysByTeamID == nil {
+		panic("unexpected ListKeysByTeamID call")
+	}
+	return s.listKeysByTeamID(ctx, teamID)
 }
 
 func (s *authRepoStub) IncrementQuotaUsed(ctx context.Context, id int64, amount float64) (float64, error) {
@@ -159,6 +170,11 @@ func (s *authCacheStub) SetAuthCache(ctx context.Context, key string, entry *API
 
 func (s *authCacheStub) DeleteAuthCache(ctx context.Context, key string) error {
 	s.deleteAuthKeys = append(s.deleteAuthKeys, key)
+	return nil
+}
+
+func (s *authCacheStub) DeleteAuthCacheBatch(ctx context.Context, cacheKeys []string) error {
+	s.deleteAuthKeys = append(s.deleteAuthKeys, cacheKeys...)
 	return nil
 }
 
@@ -465,7 +481,10 @@ func TestAPIKeyService_InvalidateAuthCacheByUserID(t *testing.T) {
 	svc := NewAPIKeyService(repo, nil, nil, nil, nil, cache, cfg)
 
 	svc.InvalidateAuthCacheByUserID(context.Background(), 7)
-	require.Len(t, cache.deleteAuthKeys, 2)
+	// 异步 fan-out：等 goroutine 完成 listKeysByUserID + batch delete。
+	require.Eventually(t, func() bool {
+		return len(cache.deleteAuthKeys) == 2
+	}, time.Second, 5*time.Millisecond)
 }
 
 func TestAPIKeyService_InvalidateAuthCacheByGroupID(t *testing.T) {
@@ -483,7 +502,9 @@ func TestAPIKeyService_InvalidateAuthCacheByGroupID(t *testing.T) {
 	svc := NewAPIKeyService(repo, nil, nil, nil, nil, cache, cfg)
 
 	svc.InvalidateAuthCacheByGroupID(context.Background(), 9)
-	require.Len(t, cache.deleteAuthKeys, 2)
+	require.Eventually(t, func() bool {
+		return len(cache.deleteAuthKeys) == 2
+	}, time.Second, 5*time.Millisecond)
 }
 
 func TestAPIKeyService_InvalidateAuthCacheByKey(t *testing.T) {

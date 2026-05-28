@@ -10,6 +10,7 @@
           class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 dark:border-gray-700 dark:bg-dark-800"
         >
           <button
+            v-if="availableSources.includes('inbound')"
             type="button"
             class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
             :class="source === 'inbound'
@@ -20,6 +21,7 @@
             {{ t('usage.inbound') }}
           </button>
           <button
+            v-if="availableSources.includes('upstream')"
             type="button"
             class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
             :class="source === 'upstream'
@@ -30,6 +32,7 @@
             {{ t('usage.upstream') }}
           </button>
           <button
+            v-if="availableSources.includes('path')"
             type="button"
             class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
             :class="source === 'path'
@@ -83,7 +86,7 @@
               <th class="pb-2 text-right">{{ t('admin.dashboard.requests') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.tokens') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.actual') }}</th>
-              <th class="pb-2 text-right">{{ t('admin.dashboard.standard') }}</th>
+              <th v-if="!hideCost" class="pb-2 text-right">{{ t('admin.dashboard.standard') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -108,15 +111,16 @@
                 <td class="py-1.5 text-right text-green-600 dark:text-green-400">
                   ${{ formatCost(item.actual_cost) }}
                 </td>
-                <td class="py-1.5 text-right text-gray-400 dark:text-gray-500">
+                <td v-if="!hideCost" class="py-1.5 text-right text-gray-400 dark:text-gray-500">
                   ${{ formatCost(item.cost) }}
                 </td>
               </tr>
               <tr v-if="expandedKey === item.endpoint">
-                <td colspan="5" class="p-0">
+                <td :colspan="hideCost ? 4 : 5" class="p-0">
                   <UserBreakdownSubTable
                     :items="breakdownItems"
                     :loading="breakdownLoading"
+                    :hide-cost="hideCost"
                   />
                 </td>
               </tr>
@@ -139,7 +143,7 @@ import { Doughnut } from 'vue-chartjs'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import UserBreakdownSubTable from './UserBreakdownSubTable.vue'
 import type { EndpointStat, UserBreakdownItem } from '@/types'
-import { getUserBreakdown } from '@/api/admin/dashboard'
+import { fetchUserBreakdown } from '@/composables/useUserBreakdownFetcher'
 
 ChartJS.register(ArcElement, Tooltip, Legend)
 
@@ -159,9 +163,23 @@ const props = withDefaults(
     source?: EndpointSource
     showMetricToggle?: boolean
     showSourceToggle?: boolean
+    /**
+     * Which source toggle buttons to render. Defaults to all three. The team
+     * usage page passes ['inbound','path'] to hide upstream (account-level).
+     */
+    availableSources?: EndpointSource[]
     startDate?: string
     endDate?: string
     filters?: Record<string, any>
+    /**
+     * When set, the per-row drill-down hits the team-scoped user-breakdown
+     * endpoint instead of the admin one. teamId is required when scope === 'team'.
+     */
+    breakdownScope?: 'admin' | 'team'
+    breakdownSource?: 'admin' | 'team_admin'
+    teamId?: number
+    /** Hide cost columns in the ranking table (team_admin view). */
+    hideCost?: boolean
   }>(),
   {
     upstreamEndpointStats: () => [],
@@ -171,9 +189,13 @@ const props = withDefaults(
     metric: 'tokens',
     source: 'inbound',
     showMetricToggle: false,
-    showSourceToggle: false
+    showSourceToggle: false,
+    availableSources: () => ['inbound', 'upstream', 'path'],
+    breakdownScope: 'admin',
+    hideCost: false,
   }
 )
+
 
 const emit = defineEmits<{
   'update:metric': [value: DistributionMetric]
@@ -192,20 +214,14 @@ const toggleBreakdown = async (endpoint: string) => {
   expandedKey.value = endpoint
   breakdownLoading.value = true
   breakdownItems.value = []
-  try {
-    const res = await getUserBreakdown({
-      ...props.filters,
-      start_date: props.startDate,
-      end_date: props.endDate,
-      endpoint,
-      endpoint_type: props.source,
-    })
-    breakdownItems.value = res.users || []
-  } catch {
-    breakdownItems.value = []
-  } finally {
-    breakdownLoading.value = false
-  }
+  breakdownItems.value = await fetchUserBreakdown(props, {
+    ...props.filters,
+    start_date: props.startDate,
+    end_date: props.endDate,
+    endpoint,
+    endpoint_type: props.source,
+  })
+  breakdownLoading.value = false
 }
 
 const chartColors = [

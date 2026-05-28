@@ -895,7 +895,15 @@ func TestAPIContracts(t *testing.T) {
 					"wechat_connect_mobile_app_secret_configured": false,
 					"wechat_connect_redirect_url": "",
 					"wechat_connect_frontend_redirect_url": "/auth/wechat/callback",
-					"wechat_connect_scopes": "snsapi_login"
+					"wechat_connect_scopes": "snsapi_login",
+					"debug_request_log_enabled": false,
+					"debug_request_log_sample_rate": 10,
+					"debug_request_log_body_limit_bytes": 1024,
+					"debug_request_log_redact_headers": true,
+					"debug_request_log_ttl_hours": 168,
+					"display_discount_enabled": false,
+					"local_currency": "CNY",
+					"usd_exchange_rate": 7.2
 				}
 			}`,
 		},
@@ -1165,7 +1173,15 @@ func TestAPIContracts(t *testing.T) {
 					"auth_source_default_dingtalk_subscriptions": [],
 					"auth_source_default_dingtalk_grant_on_signup": false,
 					"auth_source_default_dingtalk_grant_on_first_bind": false,
-					"force_email_on_third_party_signup": false
+					"force_email_on_third_party_signup": false,
+					"debug_request_log_enabled": false,
+					"debug_request_log_sample_rate": 10,
+					"debug_request_log_body_limit_bytes": 1024,
+					"debug_request_log_redact_headers": true,
+					"debug_request_log_ttl_hours": 168,
+					"display_discount_enabled": false,
+					"local_currency": "CNY",
+					"usd_exchange_rate": 7.2
 				}
 			}`,
 		},
@@ -1524,6 +1540,10 @@ func (stubApiKeyCache) DeleteAuthCache(ctx context.Context, key string) error {
 	return nil
 }
 
+func (stubApiKeyCache) DeleteAuthCacheBatch(ctx context.Context, cacheKeys []string) error {
+	return nil
+}
+
 func (stubApiKeyCache) PublishAuthCacheInvalidation(ctx context.Context, cacheKey string) error {
 	return nil
 }
@@ -1731,7 +1751,7 @@ func (s *stubAccountRepo) SetRateLimited(ctx context.Context, id int64, resetAt 
 	return errors.New("not implemented")
 }
 
-func (s *stubAccountRepo) SetModelRateLimit(ctx context.Context, id int64, scope string, resetAt time.Time, reason ...string) error {
+func (s *stubAccountRepo) SetModelRateLimit(ctx context.Context, id int64, scope string, resetAt time.Time) error {
 	return errors.New("not implemented")
 }
 
@@ -1958,6 +1978,9 @@ func (r *stubUserSubscriptionRepo) ListActiveByUserID(ctx context.Context, userI
 	return append([]service.UserSubscription(nil), r.activeByUser[userID]...), nil
 }
 func (stubUserSubscriptionRepo) ListByGroupID(ctx context.Context, groupID int64, params pagination.PaginationParams) ([]service.UserSubscription, *pagination.PaginationResult, error) {
+	return nil, nil, errors.New("not implemented")
+}
+func (stubUserSubscriptionRepo) ListByTeamID(ctx context.Context, teamID int64, _ service.UserSubscriptionTeamFilters, params pagination.PaginationParams) ([]service.UserSubscription, *pagination.PaginationResult, error) {
 	return nil, nil, errors.New("not implemented")
 }
 func (stubUserSubscriptionRepo) List(ctx context.Context, params pagination.PaginationParams, userID, groupID *int64, status, platform, sortBy, sortOrder string) ([]service.UserSubscription, *pagination.PaginationResult, error) {
@@ -2205,6 +2228,10 @@ func (r *stubApiKeyRepo) ListKeysByUserID(ctx context.Context, userID int64) ([]
 }
 
 func (r *stubApiKeyRepo) ListKeysByGroupID(ctx context.Context, groupID int64) ([]string, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *stubApiKeyRepo) ListKeysByTeamID(ctx context.Context, teamID int64) ([]string, error) {
 	return nil, errors.New("not implemented")
 }
 

@@ -6,6 +6,7 @@ import NavigationProgress from '@/components/common/NavigationProgress.vue'
 import { resolveDocumentTitle } from '@/router/title'
 import AnnouncementPopup from '@/components/common/AnnouncementPopup.vue'
 import { useAppStore, useAuthStore, useSubscriptionStore, useAnnouncementStore } from '@/stores'
+import { useTeamStore } from '@/stores/team'
 import { getSetupStatus } from '@/api/setup'
 
 const router = useRouter()
@@ -13,6 +14,7 @@ const route = useRoute()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 const subscriptionStore = useSubscriptionStore()
+const teamStore = useTeamStore()
 const announcementStore = useAnnouncementStore()
 
 /**
@@ -57,6 +59,8 @@ watch(
       subscriptionStore.fetchActiveSubscriptions().catch((error) => {
         console.error('Failed to preload subscriptions:', error)
       })
+      // Fork: load team membership silently — AppHeader 切换团队余额显示需要
+      teamStore.load().catch(() => {})
       subscriptionStore.startPolling()
 
       // Announcements: new login vs page refresh restore

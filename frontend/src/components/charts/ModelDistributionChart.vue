@@ -114,8 +114,8 @@
               <th class="pb-2 text-right">{{ t('admin.dashboard.requests') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.tokens') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.actual') }}</th>
-              <th class="pb-2 text-right">{{ t('admin.dashboard.accountCost') }}</th>
-              <th class="pb-2 text-right">{{ t('admin.dashboard.standard') }}</th>
+              <th v-if="!hideCost" class="pb-2 text-right">{{ t('admin.dashboard.accountCost') }}</th>
+              <th v-if="!hideCost" class="pb-2 text-right">{{ t('admin.dashboard.standard') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -143,18 +143,19 @@
                 <td class="py-1.5 text-right text-green-600 dark:text-green-400">
                   ${{ formatCost(model.actual_cost) }}
                 </td>
-                <td class="py-1.5 text-right text-orange-500 dark:text-orange-400">
+                <td v-if="!hideCost" class="py-1.5 text-right text-orange-500 dark:text-orange-400">
                   ${{ formatCost(model.account_cost) }}
                 </td>
-                <td class="py-1.5 text-right text-gray-400 dark:text-gray-500">
+                <td v-if="!hideCost" class="py-1.5 text-right text-gray-400 dark:text-gray-500">
                   ${{ formatCost(model.cost) }}
                 </td>
               </tr>
               <tr v-if="expandedKey === `model-${model.model}`">
-                <td colspan="6" class="p-0">
+                <td :colspan="hideCost ? 4 : 6" class="p-0">
                   <UserBreakdownSubTable
                     :items="breakdownItems"
                     :loading="breakdownLoading"
+                    :hide-cost="hideCost"
                   />
                 </td>
               </tr>
@@ -247,7 +248,7 @@ import { Doughnut } from 'vue-chartjs'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import UserBreakdownSubTable from './UserBreakdownSubTable.vue'
 import type { ModelStat, UserSpendingRankingItem, UserBreakdownItem } from '@/types'
-import { getUserBreakdown } from '@/api/admin/dashboard'
+import { fetchUserBreakdown } from '@/composables/useUserBreakdownFetcher'
 
 ChartJS.register(ArcElement, Tooltip, Legend)
 
@@ -275,6 +276,15 @@ const props = withDefaults(defineProps<{
   startDate?: string
   endDate?: string
   filters?: Record<string, any>
+  /**
+   * When set, the per-row drill-down hits the team-scoped user-breakdown
+   * endpoint instead of the admin one. teamId is required when scope === 'team'.
+   */
+  breakdownScope?: 'admin' | 'team'
+  breakdownSource?: 'admin' | 'team_admin'
+  teamId?: number
+  /** Hide cost-breakdown columns (account cost, standard cost). The actual_cost column stays visible. */
+  hideCost?: boolean
 }>(), {
   upstreamModelStats: () => [],
   mappingModelStats: () => [],
@@ -289,7 +299,9 @@ const props = withDefaults(defineProps<{
   showSourceToggle: false,
   showMetricToggle: false,
   rankingLoading: false,
-  rankingError: false
+  rankingError: false,
+  breakdownScope: 'admin',
+  hideCost: false,
 })
 
 const expandedKey = ref<string | null>(null)
@@ -306,16 +318,13 @@ const toggleBreakdown = async (type: string, id: string) => {
   breakdownLoading.value = true
   breakdownItems.value = []
   try {
-    const res = await getUserBreakdown({
+    breakdownItems.value = await fetchUserBreakdown(props, {
       ...props.filters,
       start_date: props.startDate,
       end_date: props.endDate,
       model: id,
       model_source: props.source,
     })
-    breakdownItems.value = res.users || []
-  } catch {
-    breakdownItems.value = []
   } finally {
     breakdownLoading.value = false
   }
