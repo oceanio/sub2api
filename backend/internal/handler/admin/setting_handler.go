@@ -7,10 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
@@ -303,6 +306,10 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		DebugRequestLogSampleRate:    settings.DebugRequestLogSampleRate,
 		DebugRequestLogRedactHeaders: settings.DebugRequestLogRedactHeaders,
 		DebugRequestLogBodyLimit:     settings.DebugRequestLogBodyLimit,
+		// Fork: 折扣显示 + 本币汇率
+		DisplayDiscountEnabled: settings.DisplayDiscountEnabled,
+		LocalCurrency:          settings.LocalCurrency,
+		USDExchangeRate:        settings.USDExchangeRate,
 	}
 
 	// OpenAI fast policy (stored under a dedicated setting key)
@@ -670,6 +677,11 @@ type UpdateSettingsRequest struct {
 	DebugRequestLogSampleRate    *int  `json:"debug_request_log_sample_rate"`
 	DebugRequestLogRedactHeaders *bool `json:"debug_request_log_redact_headers"`
 	DebugRequestLogBodyLimit     *int  `json:"debug_request_log_body_limit_bytes"`
+
+	// Fork: 折扣显示 + 本币汇率
+	DisplayDiscountEnabled *bool    `json:"display_discount_enabled"`
+	LocalCurrency          *string  `json:"local_currency"`
+	USDExchangeRate        *float64 `json:"usd_exchange_rate"`
 }
 
 // UpdateSettings 更新系统设置
@@ -1771,6 +1783,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		DebugRequestLogSampleRate:    intValueOrDefault(req.DebugRequestLogSampleRate, previousSettings.DebugRequestLogSampleRate),
 		DebugRequestLogRedactHeaders: boolValueOrDefault(req.DebugRequestLogRedactHeaders, previousSettings.DebugRequestLogRedactHeaders),
 		DebugRequestLogBodyLimit:     intValueOrDefault(req.DebugRequestLogBodyLimit, previousSettings.DebugRequestLogBodyLimit),
+		// Fork: 折扣显示 + 本币汇率（LocalCurrency 走白名单 normalize）
+		DisplayDiscountEnabled: boolValueOrDefault(req.DisplayDiscountEnabled, previousSettings.DisplayDiscountEnabled),
+		LocalCurrency:          service.NormalizeLocalCurrency(stringValueOrDefault(req.LocalCurrency, previousSettings.LocalCurrency)),
+		USDExchangeRate:        float64ValueOrDefault(req.USDExchangeRate, previousSettings.USDExchangeRate),
 	}
 
 	// req.AuthSourceXxxPlatformQuotas 为 nil 表示本次请求未包含该 source 的 quota 配置（保留 previousAuthSourceDefaults 中的值）；
@@ -2099,6 +2115,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		DebugRequestLogSampleRate:    updatedSettings.DebugRequestLogSampleRate,
 		DebugRequestLogRedactHeaders: updatedSettings.DebugRequestLogRedactHeaders,
 		DebugRequestLogBodyLimit:     updatedSettings.DebugRequestLogBodyLimit,
+		// Fork: 折扣显示 + 本币汇率
+		DisplayDiscountEnabled: updatedSettings.DisplayDiscountEnabled,
+		LocalCurrency:          updatedSettings.LocalCurrency,
+		USDExchangeRate:        updatedSettings.USDExchangeRate,
 	}
 	if fastPolicy, err := h.settingService.GetOpenAIFastPolicySettings(c.Request.Context()); err != nil {
 		slog.Error("openai_fast_policy_settings_get_failed", "error", err)
@@ -2667,6 +2687,13 @@ func float64ValueOrDefault(value *float64, fallback float64) float64 {
 }
 
 func intValueOrDefault(value *int, fallback int) int {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func stringValueOrDefault(value *string, fallback string) string {
 	if value == nil {
 		return fallback
 	}
@@ -3687,4 +3714,83 @@ func equalPlatformQuotaSettings(before, after map[string]*service.DefaultPlatfor
 		}
 	}
 	return true
+}
+
+// RefreshExchangeRate 从公开汇率 API 拉取 1 USD → 当前/请求币种 的最新汇率，
+// 并将结果写入 settings。请求 body 可选：{"currency":"CNY"} 指定币种，
+// 不指定则用当前 settings.LocalCurrency。
+// POST /api/v1/admin/settings/exchange-rate/refresh
+func (h *SettingHandler) RefreshExchangeRate(c *gin.Context) {
+	var req struct {
+		Currency string `json:"currency"`
+	}
+	_ = c.ShouldBindJSON(&req) // body 可选，忽略解析错误
+
+	ctx := c.Request.Context()
+	settings, err := h.settingService.GetAllSettings(ctx)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	currency := strings.TrimSpace(req.Currency)
+	if currency == "" {
+		currency = settings.LocalCurrency
+	}
+	currency = service.NormalizeLocalCurrency(currency)
+	if !service.IsSupportedLocalCurrency(currency) {
+		response.BadRequest(c, "不支持的币种: "+req.Currency)
+		return
+	}
+
+	rate, err := fetchUSDToCurrencyRate(currency)
+	if err != nil {
+		response.BadRequest(c, "获取汇率失败: "+err.Error())
+		return
+	}
+
+	settings.LocalCurrency = currency
+	settings.USDExchangeRate = rate
+	if err := h.settingService.UpdateSettings(ctx, settings); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{
+		"local_currency":    currency,
+		"usd_exchange_rate": rate,
+	})
+}
+
+// fetchUSDToCurrencyRate 查 open.er-api.com 获取 1 USD 兑换目标币种的实时汇率。
+// 失败返回 error；成功返回精确到 4 位小数的浮点数。
+func fetchUSDToCurrencyRate(currency string) (float64, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get("https://open.er-api.com/v6/latest/USD")
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, err
+	}
+
+	var result struct {
+		Result string             `json:"result"`
+		Rates  map[string]float64 `json:"rates"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return 0, err
+	}
+	if result.Result != "success" {
+		return 0, fmt.Errorf("API返回错误: %s", result.Result)
+	}
+	val, ok := result.Rates[strings.ToUpper(currency)]
+	if !ok || val <= 0 {
+		return 0, fmt.Errorf("未获取到 %s 汇率", currency)
+	}
+	// 精确到 4 位小数（汇率粒度足够，避免显示尾数）
+	rounded, _ := strconv.ParseFloat(strconv.FormatFloat(val, 'f', 4, 64), 64)
+	return rounded, nil
 }

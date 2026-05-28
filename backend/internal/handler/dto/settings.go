@@ -258,6 +258,11 @@ type SystemSettings struct {
 	DebugRequestLogSampleRate    int  `json:"debug_request_log_sample_rate"`
 	DebugRequestLogRedactHeaders bool `json:"debug_request_log_redact_headers"`
 	DebugRequestLogBodyLimit     int  `json:"debug_request_log_body_limit_bytes"`
+
+	// Fork: 折扣显示 + 本币汇率
+	DisplayDiscountEnabled bool    `json:"display_discount_enabled"`
+	LocalCurrency          string  `json:"local_currency"`
+	USDExchangeRate        float64 `json:"usd_exchange_rate"`
 }
 
 type DefaultSubscriptionSetting struct {
@@ -322,6 +327,11 @@ type PublicSettings struct {
 	AffiliateEnabled bool `json:"affiliate_enabled"`
 
 	RiskControlEnabled bool `json:"risk_control_enabled"`
+
+	// Fork: 折扣显示 + 本币汇率（暴露给前端用于分组徽章显示）
+	DisplayDiscountEnabled bool    `json:"display_discount_enabled"`
+	LocalCurrency          string  `json:"local_currency"`
+	USDExchangeRate        float64 `json:"usd_exchange_rate"`
 }
 
 type LoginAgreementDocument struct {

@@ -453,6 +453,11 @@ const (
 	SettingKeyDebugRequestLogSampleRate    = "debug_request_log_sample_rate"    // 采样率 1-100（默认 10）
 	SettingKeyDebugRequestLogRedactHeaders = "debug_request_log_redact_headers" // 是否脱敏请求头（默认 true）
 	SettingKeyDebugRequestLogBodyLimit     = "debug_request_log_body_limit_bytes" // body 截断字节数（0=不截断，默认 1024）
+
+	// Fork addition: 分组折扣显示 + 本币汇率（逻辑集中在 setting_currency.go）
+	SettingKeyDisplayDiscountEnabled = "display_discount_enabled" // 是否启用折扣显示模式；关闭时显示原始倍率（Nx）
+	SettingKeyLocalCurrency          = "local_currency"           // 本币币种代码（CNY/HKD），用于汇率换算
+	SettingKeyUSDExchangeRate        = "usd_exchange_rate"        // 1 USD 兑换多少本币（按 LocalCurrency 取值），默认 7.2
 )
 
 // SettingKeyDefaultPlatformQuotas —— 系统全局：每用户 × 平台日/周/月 USD 上限（JSON）。

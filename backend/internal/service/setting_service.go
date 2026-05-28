@@ -729,6 +729,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyAffiliateEnabled,
 		SettingKeyRiskControlEnabled,
 	}
+	keys = append(keys, publicDiscountCurrencyKeys()...) // fork: discount/currency
 
 	settings, err := s.settingRepo.GetMultiple(ctx, keys)
 	if err != nil {
@@ -785,7 +786,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		balanceLowNotifyThreshold = v
 	}
 
-	return &PublicSettings{
+	result := &PublicSettings{
 		RegistrationEnabled:              settings[SettingKeyRegistrationEnabled] == "true",
 		EmailVerifyEnabled:               emailVerifyEnabled,
 		ForceEmailOnThirdPartySignup:     settings[SettingKeyForceEmailOnThirdPartySignup] == "true",
@@ -840,7 +841,9 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		AffiliateEnabled: settings[SettingKeyAffiliateEnabled] == "true",
 
 		RiskControlEnabled: settings[SettingKeyRiskControlEnabled] == "true",
-	}, nil
+	}
+	applyDiscountCurrencyPublic(result, settings) // fork: discount/currency
+	return result, nil
 }
 
 // channelMonitorIntervalMin / channelMonitorIntervalMax bound the default interval
@@ -1830,7 +1833,8 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyAccountQuotaNotifyEnabled] = strconv.FormatBool(settings.AccountQuotaNotifyEnabled)
 	updates[SettingKeyAccountQuotaNotifyEmails] = MarshalNotifyEmails(settings.AccountQuotaNotifyEmails)
 
-	applyDebugLogUpdates(updates, settings) // fork: request-debug-log
+	applyDebugLogUpdates(updates, settings)         // fork: request-debug-log
+	applyDiscountCurrencyUpdates(updates, settings) // fork: discount/currency
 
 	// 系统全局 platform quota：整体替换语义（null/缺省 = 不限制）。
 	if settings.DefaultPlatformQuotas != nil {
@@ -3267,7 +3271,8 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		result.AccountQuotaNotifyEmails = []NotifyEmailEntry{}
 	}
 
-	applyDebugLogParse(result, settings) // fork: request-debug-log
+	applyDebugLogParse(result, settings)         // fork: request-debug-log
+	applyDiscountCurrencyParse(result, settings) // fork: discount/currency
 
 	// 系统层默认 platform quota（修复 Bug B：parseSettings 不填充导致回显恒为 nil）
 	if raw := settings[SettingKeyDefaultPlatformQuotas]; raw != "" {
