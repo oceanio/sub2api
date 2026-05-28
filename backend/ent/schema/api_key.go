@@ -115,6 +115,12 @@ func (APIKey) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			Comment("Start time of the current 7d rate limit window"),
+
+		// ========== Team fields ==========
+		field.Int64("team_id").
+			Optional().
+			Nillable().
+			Comment("Team context this key belongs to. nil = personal key (deduct user balance). non-nil = team key (deduct team balance)."),
 	}
 }
 
@@ -129,6 +135,10 @@ func (APIKey) Edges() []ent.Edge {
 			Ref("api_keys").
 			Field("group_id").
 			Unique(),
+		edge.From("team", Team.Type).
+			Ref("api_keys").
+			Field("team_id").
+			Unique(),
 		edge.To("usage_logs", UsageLog.Type),
 	}
 }
@@ -138,6 +148,7 @@ func (APIKey) Indexes() []ent.Index {
 		// key 字段已在 Fields() 中声明 Unique()，无需重复索引
 		index.Fields("user_id"),
 		index.Fields("group_id"),
+		index.Fields("team_id"),
 		index.Fields("status"),
 		index.Fields("deleted_at"),
 		index.Fields("last_used_at"),
