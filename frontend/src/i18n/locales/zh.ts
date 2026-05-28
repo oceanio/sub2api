@@ -1,5 +1,6 @@
 // Fork addition 集中在独立文件 (见 ./debug_log_zh)，减少跟踪上游时的冲突。
 import { debugLogUsage, debugLogSettingsFeatures } from './debug_log_zh'
+import { teamMessages } from './team_zh'
 
 export default {
   // Home Page
@@ -298,6 +299,8 @@ export default {
     disabled: '已禁用',
     total: '总计',
     balance: '余额',
+    teamBalance: '团队余额',
+    team: '团队',
     available: '可用',
     copiedToClipboard: '已复制到剪贴板',
     copied: '已复制',
@@ -7182,5 +7185,8 @@ export default {
       },
     },
   },
+
+  // Fork: Team-feature 文案集中在 ./team_zh.ts
+  team: teamMessages,
 
 }

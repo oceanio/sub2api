@@ -1,6 +1,7 @@
 // Fork additions are kept in dedicated files (see ./debug_log_en) to minimize
 // merge conflicts when origin/main churns this file.
 import { debugLogUsage, debugLogSettingsFeatures } from './debug_log_en'
+import { teamMessages } from './team_en'
 
 export default {
   // Home Page
@@ -299,6 +300,8 @@ export default {
     disabled: 'Disabled',
     total: 'Total',
     balance: 'Balance',
+    teamBalance: 'Team Balance',
+    team: 'Team',
     available: 'Available',
     copiedToClipboard: 'Copied to clipboard',
     copied: 'Copied',
@@ -7002,5 +7005,8 @@ export default {
       },
     },
   },
+
+  // Fork: Team-feature translations live in ./team_en.ts.
+  team: teamMessages,
 
 }
