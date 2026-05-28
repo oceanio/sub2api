@@ -1,0 +1,133 @@
+# syntax=docker/dockerfile:1.7
+# =============================================================================
+# Sub2API noembed Dockerfile
+# =============================================================================
+# Builds only the Go backend. NO frontend is bundled into the image.
+#
+# The binary is still compiled with -tags embed (because internal/web/embed_on.go
+# uses //go:embed), but the embedded dist/ only contains a tiny placeholder
+# index.html. At runtime, the frontend MUST be supplied via /app/data/public/:
+#
+#     rsync -av --delete frontend/dist/ /app/data/public/   # on host
+#     # or
+#     docker cp ./dist/. <container>:/app/data/public/
+#
+# When data/public/index.html is missing, requests to "/" will fall back to
+# the placeholder HTML below, which is intentionally explicit so the operator
+# notices the frontend was never deployed.
+#
+# Use the default Dockerfile for "batteries-included" images that bundle the
+# frontend; use this one when the frontend has its own release cadence.
+# =============================================================================
+
+ARG GOLANG_IMAGE=golang:1.26.3-alpine
+ARG ALPINE_IMAGE=alpine:3.21
+ARG POSTGRES_IMAGE=postgres:18-alpine
+ARG GOPROXY=https://goproxy.cn,direct
+ARG GOSUMDB=sum.golang.google.cn
+
+# -----------------------------------------------------------------------------
+# Stage 1: Backend Builder
+# -----------------------------------------------------------------------------
+FROM ${GOLANG_IMAGE} AS backend-builder
+
+ARG VERSION=
+ARG COMMIT=docker
+ARG DATE
+ARG GOPROXY
+ARG GOSUMDB
+
+ENV GOPROXY=${GOPROXY}
+ENV GOSUMDB=${GOSUMDB}
+
+RUN apk add --no-cache git ca-certificates tzdata
+
+WORKDIR /app/backend
+
+COPY backend/go.mod backend/go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+COPY backend/ ./
+
+# Replace the (potentially populated) dist directory with a placeholder so
+# //go:embed all:dist compiles, but the resulting binary carries no real
+# frontend. The placeholder is shown verbatim when data/public/index.html
+# is missing at runtime.
+RUN rm -rf ./internal/web/dist && \
+    mkdir -p ./internal/web/dist && \
+    printf '%s\n' \
+      '<!doctype html>' \
+      '<html lang="en"><head>' \
+      '<meta charset="UTF-8"/>' \
+      '<title>sub2api</title>' \
+      '</head><body style="font-family:sans-serif;padding:2rem">' \
+      '<h1>Frontend not deployed</h1>' \
+      '<p>This is a noembed image. Place your built frontend under <code>/app/data/public/</code>.</p>' \
+      '</body></html>' \
+      > ./internal/web/dist/index.html
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    VERSION_VALUE="${VERSION}" && \
+    if [ -z "${VERSION_VALUE}" ]; then VERSION_VALUE="$(tr -d '\r\n' < ./cmd/server/VERSION)"; fi && \
+    DATE_VALUE="${DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" && \
+    CGO_ENABLED=0 GOOS=linux go build \
+    -tags embed \
+    -ldflags="-s -w -X main.Version=${VERSION_VALUE} -X main.Commit=${COMMIT} -X main.Date=${DATE_VALUE} -X main.BuildType=release-noembed" \
+    -trimpath \
+    -o /app/sub2api \
+    ./cmd/server
+
+# -----------------------------------------------------------------------------
+# Stage 2: PostgreSQL Client (version-matched with docker-compose)
+# -----------------------------------------------------------------------------
+FROM ${POSTGRES_IMAGE} AS pg-client
+
+# -----------------------------------------------------------------------------
+# Stage 3: Final Runtime Image
+# -----------------------------------------------------------------------------
+FROM ${ALPINE_IMAGE}
+
+LABEL maintainer="Wei-Shaw <github.com/Wei-Shaw>"
+LABEL description="Sub2API - AI API Gateway Platform (noembed: frontend served from data/public/)"
+LABEL org.opencontainers.image.source="https://github.com/Wei-Shaw/sub2api"
+
+RUN apk add --no-cache \
+    ca-certificates \
+    tzdata \
+    su-exec \
+    libpq \
+    zstd-libs \
+    lz4-libs \
+    krb5-libs \
+    libldap \
+    libedit \
+    && rm -rf /var/cache/apk/*
+
+COPY --from=pg-client /usr/local/bin/pg_dump /usr/local/bin/pg_dump
+COPY --from=pg-client /usr/local/bin/psql /usr/local/bin/psql
+COPY --from=pg-client /usr/local/lib/libpq.so.5* /usr/local/lib/
+
+RUN addgroup -g 1000 sub2api && \
+    adduser -u 1000 -G sub2api -s /bin/sh -D sub2api
+
+WORKDIR /app
+
+COPY --from=backend-builder --chown=sub2api:sub2api /app/sub2api /app/sub2api
+COPY --from=backend-builder --chown=sub2api:sub2api /app/backend/resources /app/resources
+
+# Pre-create data/public so a bind mount or "docker cp" works without
+# additional chown-on-startup gymnastics.
+RUN mkdir -p /app/data/public && chown -R sub2api:sub2api /app/data
+
+COPY deploy/docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD wget -q -T 5 -O /dev/null http://localhost:${SERVER_PORT:-8080}/health || exit 1
+
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD ["/app/sub2api"]

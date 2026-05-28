@@ -7,8 +7,11 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/gin-gonic/gin"
@@ -540,6 +543,140 @@ func TestFrontendServer_Middleware(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Header().Get("Content-Type"), "image/png")
+	})
+}
+
+// withOverrideDir points the FrontendServer's overrideDir at a fresh temp dir
+// and returns its absolute path. Use to test data/public/* behaviour without
+// touching the real working directory.
+func withOverrideDir(t *testing.T, server *FrontendServer) string {
+	t.Helper()
+	dir := t.TempDir()
+	server.overrideDir = dir
+	server.cache.Invalidate()
+	server.overrideMTime = time.Time{}
+	return dir
+}
+
+func TestFrontendServer_OverrideDirectory(t *testing.T) {
+	t.Run("override_index_html_is_served_with_injection", func(t *testing.T) {
+		provider := &mockSettingsProvider{
+			settings: map[string]any{"site_name": "OverrideSite"},
+		}
+		server, err := NewFrontendServer(provider)
+		require.NoError(t, err)
+
+		dir := withOverrideDir(t, server)
+		customHTML := `<!doctype html><html><head><title>placeholder</title></head><body><div id="custom-app"></div></body></html>`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "index.html"), []byte(customHTML), 0o644))
+
+		router := gin.New()
+		router.Use(func(c *gin.Context) { c.Set(middleware.CSPNonceKey, "test-nonce"); c.Next() })
+		router.Use(server.Middleware())
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		body := w.Body.String()
+		assert.Contains(t, body, `<div id="custom-app"></div>`, "must serve override HTML body")
+		assert.Contains(t, body, `window.__APP_CONFIG__=`, "must inject settings into override HTML")
+		assert.Contains(t, body, `<title>OverrideSite - AI API Gateway</title>`, "must inject site title")
+		assert.Contains(t, body, `nonce="test-nonce"`, "must replace nonce placeholder")
+	})
+
+	t.Run("override_index_picked_up_after_mtime_change", func(t *testing.T) {
+		provider := &mockSettingsProvider{settings: map[string]string{}}
+		server, err := NewFrontendServer(provider)
+		require.NoError(t, err)
+
+		dir := withOverrideDir(t, server)
+		indexPath := filepath.Join(dir, "index.html")
+		require.NoError(t, os.WriteFile(indexPath, []byte(`<!doctype html><html><head><title>v1</title></head><body>v1</body></html>`), 0o644))
+
+		router := gin.New()
+		router.Use(func(c *gin.Context) { c.Set(middleware.CSPNonceKey, "n"); c.Next() })
+		router.Use(server.Middleware())
+
+		w1 := httptest.NewRecorder()
+		router.ServeHTTP(w1, httptest.NewRequest(http.MethodGet, "/", nil))
+		require.Equal(t, http.StatusOK, w1.Code)
+		assert.Contains(t, w1.Body.String(), "v1")
+
+		// Overwrite with a later mtime.
+		require.NoError(t, os.WriteFile(indexPath, []byte(`<!doctype html><html><head><title>v2</title></head><body>v2</body></html>`), 0o644))
+		require.NoError(t, os.Chtimes(indexPath, time.Now().Add(2*time.Second), time.Now().Add(2*time.Second)))
+
+		w2 := httptest.NewRecorder()
+		router.ServeHTTP(w2, httptest.NewRequest(http.MethodGet, "/", nil))
+		require.Equal(t, http.StatusOK, w2.Code)
+		assert.Contains(t, w2.Body.String(), "v2", "must reload override after mtime change")
+		assert.NotContains(t, w2.Body.String(), "v1")
+	})
+
+	t.Run("override_removed_falls_back_to_embedded", func(t *testing.T) {
+		provider := &mockSettingsProvider{settings: map[string]string{}}
+		server, err := NewFrontendServer(provider)
+		require.NoError(t, err)
+
+		dir := withOverrideDir(t, server)
+		indexPath := filepath.Join(dir, "index.html")
+		require.NoError(t, os.WriteFile(indexPath, []byte(`<!doctype html><html><head><title>x</title></head><body>OVERRIDE_ONLY</body></html>`), 0o644))
+
+		router := gin.New()
+		router.Use(func(c *gin.Context) { c.Set(middleware.CSPNonceKey, "n"); c.Next() })
+		router.Use(server.Middleware())
+
+		// First request: override is active.
+		w1 := httptest.NewRecorder()
+		router.ServeHTTP(w1, httptest.NewRequest(http.MethodGet, "/", nil))
+		assert.Contains(t, w1.Body.String(), "OVERRIDE_ONLY")
+
+		// Remove override; subsequent request should serve embedded.
+		require.NoError(t, os.Remove(indexPath))
+
+		w2 := httptest.NewRecorder()
+		router.ServeHTTP(w2, httptest.NewRequest(http.MethodGet, "/", nil))
+		assert.NotContains(t, w2.Body.String(), "OVERRIDE_ONLY")
+		assert.Contains(t, w2.Body.String(), "<!doctype html>")
+	})
+
+	t.Run("override_new_file_not_in_dist_is_served", func(t *testing.T) {
+		provider := &mockSettingsProvider{settings: map[string]string{}}
+		server, err := NewFrontendServer(provider)
+		require.NoError(t, err)
+
+		dir := withOverrideDir(t, server)
+		// File that the embedded dist does NOT contain.
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "robots.txt"), []byte("User-agent: *\nDisallow: /admin\n"), 0o644))
+
+		router := gin.New()
+		router.Use(func(c *gin.Context) { c.Set(middleware.CSPNonceKey, "n"); c.Next() })
+		router.Use(server.Middleware())
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/robots.txt", nil))
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "Disallow: /admin")
+	})
+
+	t.Run("override_replaces_embedded_static_file", func(t *testing.T) {
+		provider := &mockSettingsProvider{settings: map[string]string{}}
+		server, err := NewFrontendServer(provider)
+		require.NoError(t, err)
+
+		dir := withOverrideDir(t, server)
+		// dist/logo.png exists; overwrite via override directory.
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "logo.png"), []byte("OVERRIDDEN_LOGO"), 0o644))
+
+		router := gin.New()
+		router.Use(server.Middleware())
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/logo.png", nil))
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "OVERRIDDEN_LOGO", w.Body.String())
 	})
 }
 
