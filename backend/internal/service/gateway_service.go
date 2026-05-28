@@ -5345,6 +5345,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	var firstTokenMs *int
 	clientDisconnected := false
 	sawTerminalEvent := false
+	var linesReceived int // Fork: 区分「上游没发数据就断链」（可 failover）和「发了部分内容才断链」（直接断不计 failover）
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -5430,7 +5431,16 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 							return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, fmt.Errorf("stream usage incomplete after timeout")
 						}
 					}
-					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, fmt.Errorf("stream usage incomplete: missing terminal event")
+					// Fork: 按 lines_received 区分 failover vs 已写部分内容
+				logger.LegacyPrintf("service.gateway",
+					"[Stream] Missing terminal event: Account=%d(%s) lines_received=%d client_disconnected=%v ContentType=%q",
+					account.ID, account.Name, linesReceived, clientDisconnected, resp.Header.Get("Content-Type"))
+				if linesReceived == 0 && !clientDisconnected {
+					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, &UpstreamFailoverError{
+						StatusCode: http.StatusBadGateway,
+					}
+				}
+				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, nil
 				}
 				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, nil
 			}
@@ -5452,6 +5462,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			}
 
 			line := ev.line
+			linesReceived++ // Fork: 计 SSE 收到行数，决定 missing-terminal 时能否 failover
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
 				trimmed := strings.TrimSpace(data)
 				if anthropicStreamEventIsTerminal("", trimmed) {
@@ -7392,6 +7403,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 	needModelReplace := originalModel != mappedModel
 	clientDisconnected := false // 客户端断开标志，断开后继续读取上游以获取完整usage
 	sawTerminalEvent := false
+	var linesReceived int // Fork: 区分「上游没发数据就断链」（可 failover）和「发了部分内容才断链」
 
 	pendingEventLines := make([]string, 0, 4)
 
@@ -7526,7 +7538,16 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 			if !ok {
 				// 上游完成，返回结果
 				if !sawTerminalEvent {
-					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, fmt.Errorf("stream usage incomplete: missing terminal event")
+					// Fork: 按 lines_received 区分 failover vs 已写部分内容
+				logger.LegacyPrintf("service.gateway",
+					"[Stream] Missing terminal event: Account=%d(%s) lines_received=%d client_disconnected=%v ContentType=%q",
+					account.ID, account.Name, linesReceived, clientDisconnected, resp.Header.Get("Content-Type"))
+				if linesReceived == 0 && !clientDisconnected {
+					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, &UpstreamFailoverError{
+						StatusCode: http.StatusBadGateway,
+					}
+				}
+				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, nil
 				}
 				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, nil
 			}
@@ -7574,6 +7595,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream read error: %w", ev.err)
 			}
 			line := ev.line
+			linesReceived++ // Fork: 计 SSE 收到行数，决定 missing-terminal 时能否 failover
 			trimmed := strings.TrimSpace(line)
 
 			if trimmed == "" {
