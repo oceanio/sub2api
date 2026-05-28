@@ -101,8 +101,11 @@
                   {{ t('userSubscriptions.daily') }}
                 </span>
                 <span class="text-sm text-gray-500 dark:text-dark-400">
-                  ${{ (subscription.daily_usage_usd || 0).toFixed(2) }} / ${{
-                    subscription.group.daily_limit_usd.toFixed(2)
+                  {{
+                    getProgressPercentage(
+                      subscription.daily_usage_usd,
+                      subscription.group.daily_limit_usd
+                    )
                   }}
                 </span>
               </div>
@@ -138,8 +141,11 @@
                   {{ t('userSubscriptions.weekly') }}
                 </span>
                 <span class="text-sm text-gray-500 dark:text-dark-400">
-                  ${{ (subscription.weekly_usage_usd || 0).toFixed(2) }} / ${{
-                    subscription.group.weekly_limit_usd.toFixed(2)
+                  {{
+                    getProgressPercentage(
+                      subscription.weekly_usage_usd,
+                      subscription.group.weekly_limit_usd
+                    )
                   }}
                 </span>
               </div>
@@ -179,8 +185,11 @@
                   {{ t('userSubscriptions.monthly') }}
                 </span>
                 <span class="text-sm text-gray-500 dark:text-dark-400">
-                  ${{ (subscription.monthly_usage_usd || 0).toFixed(2) }} / ${{
-                    subscription.group.monthly_limit_usd.toFixed(2)
+                  {{
+                    getProgressPercentage(
+                      subscription.monthly_usage_usd,
+                      subscription.group.monthly_limit_usd
+                    )
                   }}
                 </span>
               </div>
@@ -289,6 +298,12 @@ function getProgressWidth(used: number | undefined, limit: number | null | undef
   return `${percentage}%`
 }
 
+function getProgressPercentage(used: number | undefined, limit: number | null | undefined): string {
+  if (!limit || limit === 0) return '0%'
+  const percentage = Math.min(Math.round(((used || 0) / limit) * 100), 100)
+  return `${percentage}%`
+}
+
 function getProgressBarClass(used: number | undefined, limit: number | null | undefined): string {
   if (!limit || limit === 0) return 'bg-gray-400'
   const percentage = ((used || 0) / limit) * 100
@@ -351,7 +366,7 @@ function formatDailyUsageWindow(subscription: UserSubscription): string {
   }
 
   return t('userSubscriptions.resetIn', {
-    time: formatResetTime(subscription.daily_window_start, 24)
+    time: formatResetTime(subscription.daily_window_start, 5)
   })
 }
 
