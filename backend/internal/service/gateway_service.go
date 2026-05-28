@@ -9133,9 +9133,9 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 
 	// 处理错误响应
 	if resp.StatusCode >= 400 {
-		// 标记账号状态（429/529等）
-		s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
-
+		// count_tokens 是客户端预估 token 的轻量探测，任何上游错误都不应标记账号状态：
+		// 不调用 HandleUpstreamError，避免触发限流/封禁/自定义错误码（误标临时不可用）逻辑。
+		// 错误仍透传给客户端，由客户端（如 Claude Code）自行回退本地估算。
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 		upstreamDetail := ""
@@ -9151,7 +9151,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		// 记录上游错误摘要便于排障（不回显请求内容）
 		if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
 			logger.LegacyPrintf("service.gateway",
-				"count_tokens upstream error %d (account=%d platform=%s type=%s): %s",
+				"count_tokens upstream error %d (account=%d platform=%s type=%s) [isolated, account state unchanged]: %s",
 				resp.StatusCode,
 				account.ID,
 				account.Platform,
@@ -9232,10 +9232,9 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 	}
 
 	if resp.StatusCode >= 400 {
-		if s.rateLimitService != nil {
-			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
-		}
-
+		// count_tokens 是客户端预估 token 的轻量探测，任何上游错误都不应标记账号状态：
+		// 不调用 HandleUpstreamError，避免触发限流/封禁/自定义错误码（误标临时不可用）逻辑。
+		// 错误仍透传给客户端，由客户端（如 Claude Code）自行回退本地估算。
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 

@@ -1321,11 +1321,15 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		}
 
 		// 错误策略优先：匹配则跳过重试直接处理。
-		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp); matched {
-			resp = rebuilt
-			break
-		} else {
-			resp = rebuilt
+		// countTokens 是客户端预估 token 的轻量探测，跳过 CheckErrorPolicy：
+		// 它在非自定义错误码分支会调用 tryTempUnschedulable 标记账号临时不可调度。
+		if action != "countTokens" {
+			if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp); matched {
+				resp = rebuilt
+				break
+			} else {
+				resp = rebuilt
+			}
 		}
 
 		if resp.StatusCode >= 400 && s.shouldRetryGeminiUpstreamError(account, resp.StatusCode) {
@@ -1340,7 +1344,8 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				}
 				break
 			}
-			if resp.StatusCode == 429 {
+			// countTokens 不标记账号：跳过 handleGeminiUpstreamError。
+			if resp.StatusCode == 429 && action != "countTokens" {
 				s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 			}
 			if attempt < geminiMaxRetries {
@@ -1411,6 +1416,25 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 
 	if resp.StatusCode >= 400 {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+		// countTokens 是客户端预估 token 的轻量探测，任何上游错误都不应标记账号状态。
+		// 直接回退到本地估算，跳过错误策略 / 限流 / failover 处理
+		// （与 Anthropic count_tokens 隔离行为一致；这里沿用 origin/main 已有的本地估算）。
+		if action == "countTokens" {
+			estimated := estimateGeminiCountTokens(body)
+			logger.LegacyPrintf("service.gemini_messages_compat",
+				"[countTokens] upstream error %d, falling back to local estimation: %d tokens (account=%d name=%s) [isolated, account state unchanged]",
+				resp.StatusCode, estimated, account.ID, account.Name)
+			c.JSON(http.StatusOK, map[string]any{"totalTokens": estimated})
+			return &ForwardResult{
+				RequestID:     requestID,
+				Usage:         ClaudeUsage{},
+				Model:         originalModel,
+				UpstreamModel: mappedModel,
+				Stream:        false,
+				Duration:      time.Since(startTime),
+				FirstTokenMs:  nil,
+			}, nil
+		}
 		// Best-effort fallback for OAuth tokens missing AI Studio scopes when calling countTokens.
 		// This avoids Gemini SDKs failing hard during preflight token counting.
 		// Checked before error policy so it always works regardless of custom error codes.
