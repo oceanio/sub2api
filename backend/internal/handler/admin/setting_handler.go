@@ -296,6 +296,13 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		AvailableChannelsEnabled: settings.AvailableChannelsEnabled,
 
 		AffiliateEnabled: settings.AffiliateEnabled,
+
+		// Fork: Request Debug Log（PUT 响应回显，前端 form rebind 用）
+		DebugRequestLogEnabled:       settings.DebugRequestLogEnabled,
+		DebugRequestLogTTLHours:      settings.DebugRequestLogTTLHours,
+		DebugRequestLogSampleRate:    settings.DebugRequestLogSampleRate,
+		DebugRequestLogRedactHeaders: settings.DebugRequestLogRedactHeaders,
+		DebugRequestLogBodyLimit:     settings.DebugRequestLogBodyLimit,
 	}
 
 	// OpenAI fast policy (stored under a dedicated setting key)
@@ -656,6 +663,13 @@ type UpdateSettingsRequest struct {
 	AuthSourceGitHubPlatformQuotas   map[string]*service.DefaultPlatformQuotaSetting `json:"auth_source_default_github_platform_quotas"`
 	AuthSourceGooglePlatformQuotas   map[string]*service.DefaultPlatformQuotaSetting `json:"auth_source_default_google_platform_quotas"`
 	AuthSourceDingTalkPlatformQuotas map[string]*service.DefaultPlatformQuotaSetting `json:"auth_source_default_dingtalk_platform_quotas"`
+
+	// Fork: Request Debug Log（指针型 = 缺省则保留 previousSettings）
+	DebugRequestLogEnabled       *bool `json:"debug_request_log_enabled"`
+	DebugRequestLogTTLHours      *int  `json:"debug_request_log_ttl_hours"`
+	DebugRequestLogSampleRate    *int  `json:"debug_request_log_sample_rate"`
+	DebugRequestLogRedactHeaders *bool `json:"debug_request_log_redact_headers"`
+	DebugRequestLogBodyLimit     *int  `json:"debug_request_log_body_limit_bytes"`
 }
 
 // UpdateSettings 更新系统设置
@@ -1751,6 +1765,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.RiskControlEnabled
 		}(),
+		// Fork: Request Debug Log
+		DebugRequestLogEnabled:       boolValueOrDefault(req.DebugRequestLogEnabled, previousSettings.DebugRequestLogEnabled),
+		DebugRequestLogTTLHours:      intValueOrDefault(req.DebugRequestLogTTLHours, previousSettings.DebugRequestLogTTLHours),
+		DebugRequestLogSampleRate:    intValueOrDefault(req.DebugRequestLogSampleRate, previousSettings.DebugRequestLogSampleRate),
+		DebugRequestLogRedactHeaders: boolValueOrDefault(req.DebugRequestLogRedactHeaders, previousSettings.DebugRequestLogRedactHeaders),
+		DebugRequestLogBodyLimit:     intValueOrDefault(req.DebugRequestLogBodyLimit, previousSettings.DebugRequestLogBodyLimit),
 	}
 
 	// req.AuthSourceXxxPlatformQuotas 为 nil 表示本次请求未包含该 source 的 quota 配置（保留 previousAuthSourceDefaults 中的值）；
@@ -2072,6 +2092,13 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		AffiliateEnabled: updatedSettings.AffiliateEnabled,
 
 		RiskControlEnabled: updatedSettings.RiskControlEnabled,
+
+		// Fork: Request Debug Log（PUT 响应回显，前端 form rebind 用）
+		DebugRequestLogEnabled:       updatedSettings.DebugRequestLogEnabled,
+		DebugRequestLogTTLHours:      updatedSettings.DebugRequestLogTTLHours,
+		DebugRequestLogSampleRate:    updatedSettings.DebugRequestLogSampleRate,
+		DebugRequestLogRedactHeaders: updatedSettings.DebugRequestLogRedactHeaders,
+		DebugRequestLogBodyLimit:     updatedSettings.DebugRequestLogBodyLimit,
 	}
 	if fastPolicy, err := h.settingService.GetOpenAIFastPolicySettings(c.Request.Context()); err != nil {
 		slog.Error("openai_fast_policy_settings_get_failed", "error", err)

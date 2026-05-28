@@ -251,6 +251,13 @@ type SystemSettings struct {
 
 	// 系统全局默认平台配额（key = platform，nil/缺省 = 不限制）
 	DefaultPlatformQuotas map[string]*service.DefaultPlatformQuotaSetting `json:"default_platform_quotas,omitempty"`
+
+	// Fork: Request Debug Log
+	DebugRequestLogEnabled       bool `json:"debug_request_log_enabled"`
+	DebugRequestLogTTLHours      int  `json:"debug_request_log_ttl_hours"`
+	DebugRequestLogSampleRate    int  `json:"debug_request_log_sample_rate"`
+	DebugRequestLogRedactHeaders bool `json:"debug_request_log_redact_headers"`
+	DebugRequestLogBodyLimit     int  `json:"debug_request_log_body_limit_bytes"`
 }
 
 type DefaultSubscriptionSetting struct {
