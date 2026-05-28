@@ -222,6 +222,13 @@ type SystemSettings struct {
 
 	// 系统全局默认平台配额（key = platform，nil/缺省 = 不限制）
 	DefaultPlatformQuotas map[string]*DefaultPlatformQuotaSetting `json:"default_platform_quotas"`
+
+	// Fork addition: Request Debug Log（逻辑集中在 setting_debug_log.go）
+	DebugRequestLogEnabled       bool // 调试日志全局开关
+	DebugRequestLogTTLHours      int  // 保留时长（小时）
+	DebugRequestLogSampleRate    int  // 采样率 1-100
+	DebugRequestLogRedactHeaders bool // 是否脱敏请求头
+	DebugRequestLogBodyLimit     int  // body 截断字节数（0=不截断）
 }
 
 type DefaultSubscriptionSetting struct {
