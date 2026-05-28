@@ -6582,6 +6582,9 @@
         <!-- Fork: Debug Log settings card -->
         <SettingsDebugLogSection :form="form" />
 
+        <!-- Fork: 折扣显示与汇率卡片 -->
+        <SettingsDiscountCurrencySection :form="form" />
+
         <!-- Save Button -->
         <div v-show="activeTab !== 'backup'" class="flex justify-end">
           <button
@@ -6701,6 +6704,7 @@ import ImageUpload from "@/components/common/ImageUpload.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import SettingsDebugLogSection from "@/components/admin/settings/SettingsDebugLogSection.vue";
+import SettingsDiscountCurrencySection from "@/components/admin/settings/SettingsDiscountCurrencySection.vue";
 import { useClipboard } from "@/composables/useClipboard";
 import { affiliatesAPI, type AffiliateAdminEntry, type SimpleUser as AffiliateSimpleUser } from "@/api/admin/affiliates";
 import { extractApiErrorMessage, extractI18nErrorMessage } from "@/utils/apiError";
@@ -7179,6 +7183,10 @@ const form = reactive<SettingsForm>({
   debug_request_log_sample_rate: 10,
   debug_request_log_redact_headers: true,
   debug_request_log_body_limit_bytes: 1024,
+  // Discount / currency (fork) — 默认与后端 setting_currency.go 对齐
+  display_discount_enabled: false,
+  local_currency: 'CNY',
+  usd_exchange_rate: 7.2,
   // Channel Monitor feature switch
   channel_monitor_enabled: true,
   channel_monitor_default_interval_seconds: 60,

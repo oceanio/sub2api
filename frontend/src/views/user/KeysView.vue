@@ -112,6 +112,8 @@
                   :subscription-type="row.group.subscription_type"
                   :rate-multiplier="row.group.rate_multiplier"
                   :user-rate-multiplier="userGroupRates[row.group.id]"
+                  :display-discount="displayDiscountEnabled"
+                  :exchange-rate="usdExchangeRate"
                 />
                 <span v-else class="text-sm text-gray-400 dark:text-dark-500">{{
                   t('keys.noGroup')
@@ -422,6 +424,8 @@
                 :subscription-type="(option as unknown as GroupOption).subscriptionType"
                 :rate-multiplier="(option as unknown as GroupOption).rate"
                 :user-rate-multiplier="(option as unknown as GroupOption).userRate"
+                :display-discount="displayDiscountEnabled"
+                :exchange-rate="usdExchangeRate"
               />
               <span v-else class="text-gray-400">{{ t('keys.selectGroup') }}</span>
             </template>
@@ -434,6 +438,8 @@
                 :user-rate-multiplier="(option as unknown as GroupOption).userRate"
                 :description="(option as unknown as GroupOption).description"
                 :selected="selected"
+                :display-discount="displayDiscountEnabled"
+                :exchange-rate="usdExchangeRate"
               />
             </template>
           </Select>
@@ -1032,6 +1038,8 @@
                 selectedKeyForGroup?.group_id === option.value ||
                 (!selectedKeyForGroup?.group_id && option.value === null)
               "
+              :display-discount="displayDiscountEnabled"
+              :exchange-rate="usdExchangeRate"
             />
           </button>
           <!-- Empty state when search has no results -->
@@ -1120,6 +1128,10 @@ const now = ref(new Date())
 let resetTimer: ReturnType<typeof setInterval> | null = null
 const usageStats = ref<Record<string, BatchApiKeyUsageStats>>({})
 const userGroupRates = ref<Record<number, number>>({})
+
+// Fork: 从公开设置读取"折扣显示"开关与汇率；关闭时各组件回退到原始倍率
+const displayDiscountEnabled = computed(() => appStore.cachedPublicSettings?.display_discount_enabled === true)
+const usdExchangeRate = computed(() => appStore.cachedPublicSettings?.usd_exchange_rate ?? undefined)
 
 const pagination = ref({
   page: 1,

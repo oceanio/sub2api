@@ -606,6 +606,11 @@ export interface SystemSettings {
   debug_request_log_redact_headers: boolean;
   debug_request_log_body_limit_bytes: number;
 
+  // Fork: 折扣显示 + 本币汇率
+  display_discount_enabled: boolean;
+  local_currency: string;
+  usd_exchange_rate: number;
+
   // Channel Monitor feature switch
   channel_monitor_enabled: boolean;
   channel_monitor_default_interval_seconds: number;
@@ -842,6 +847,11 @@ export interface UpdateSettingsRequest {
   debug_request_log_redact_headers?: boolean;
   debug_request_log_body_limit_bytes?: number;
 
+  // Fork: 折扣显示 + 本币汇率
+  display_discount_enabled?: boolean;
+  local_currency?: string;
+  usd_exchange_rate?: number;
+
   // Channel Monitor feature switch
   channel_monitor_enabled?: boolean;
   channel_monitor_default_interval_seconds?: number;
@@ -876,6 +886,23 @@ export async function updateSettings(
   const { data } = await apiClient.put<SystemSettings>(
     "/admin/settings",
     settings,
+  );
+  return data;
+}
+
+/**
+ * Fork: Refresh USD → local currency exchange rate from network.
+ * Optionally pass a currency code (CNY/HKD) to override the stored one.
+ */
+export async function refreshExchangeRate(
+  currency?: string,
+): Promise<{ local_currency: string; usd_exchange_rate: number }> {
+  const { data } = await apiClient.post<{
+    local_currency: string;
+    usd_exchange_rate: number;
+  }>(
+    "/admin/settings/exchange-rate/refresh",
+    currency ? { currency } : {},
   );
   return data;
 }
@@ -1340,6 +1367,7 @@ export async function resetWebSearchUsage(payload: {
 export const settingsAPI = {
   getSettings,
   updateSettings,
+  refreshExchangeRate,
   testSmtpConnection,
   sendTestEmail,
   getEmailTemplates,
