@@ -274,6 +274,8 @@ export interface BatchApiKeyUsageStats {
   api_key_id: number
   today_actual_cost: number
   total_actual_cost: number
+  today_tokens: number
+  total_tokens: number
 }
 
 export interface BatchApiKeysUsageResponse {

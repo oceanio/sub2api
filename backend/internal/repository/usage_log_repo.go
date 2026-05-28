@@ -2964,7 +2964,9 @@ func (r *usageLogRepository) GetBatchAPIKeyUsageStats(ctx context.Context, apiKe
 		SELECT
 			api_key_id,
 			COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $2 AND created_at < $3), 0) as total_cost,
-			COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $4), 0) as today_cost
+			COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $4), 0) as today_cost,
+			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens) FILTER (WHERE created_at >= $2 AND created_at < $3), 0) as total_tokens,
+			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens) FILTER (WHERE created_at >= $4), 0) as today_tokens
 		FROM usage_logs
 		WHERE api_key_id = ANY($1)
 		  AND created_at >= LEAST($2, $4)
@@ -2979,13 +2981,17 @@ func (r *usageLogRepository) GetBatchAPIKeyUsageStats(ctx context.Context, apiKe
 		var apiKeyID int64
 		var total float64
 		var todayTotal float64
-		if err := rows.Scan(&apiKeyID, &total, &todayTotal); err != nil {
+		var totalTokens int64
+		var todayTokens int64
+		if err := rows.Scan(&apiKeyID, &total, &todayTotal, &totalTokens, &todayTokens); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}
 		if stats, ok := result[apiKeyID]; ok {
 			stats.TotalActualCost = total
 			stats.TodayActualCost = todayTotal
+			stats.TotalTokens = totalTokens
+			stats.TodayTokens = todayTokens
 		}
 	}
 	if err := rows.Close(); err != nil {
@@ -4027,31 +4033,40 @@ func (r *usageLogRepository) queryUsageLogs(ctx context.Context, query string, a
 }
 
 func (r *usageLogRepository) hydrateUsageLogAssociations(ctx context.Context, logs []service.UsageLog) error {
-	// 关联数据使用 Ent 批量加载，避免把复杂 SQL 继续膨胀。
 	if len(logs) == 0 {
 		return nil
 	}
 
 	ids := collectUsageLogIDs(logs)
-	users, err := r.loadUsers(ctx, ids.userIDs)
-	if err != nil {
-		return err
+
+	var (
+		users   map[int64]*service.User
+		apiKeys map[int64]*service.APIKey
+		accounts map[int64]*service.Account
+		groups  map[int64]*service.Group
+		subs    map[int64]*service.UserSubscription
+		mu      sync.Mutex
+		wg      sync.WaitGroup
+		firstErr error
+	)
+	setErr := func(e error) {
+		mu.Lock()
+		if firstErr == nil {
+			firstErr = e
+		}
+		mu.Unlock()
 	}
-	apiKeys, err := r.loadAPIKeys(ctx, ids.apiKeyIDs)
-	if err != nil {
-		return err
-	}
-	accounts, err := r.loadAccounts(ctx, ids.accountIDs)
-	if err != nil {
-		return err
-	}
-	groups, err := r.loadGroups(ctx, ids.groupIDs)
-	if err != nil {
-		return err
-	}
-	subs, err := r.loadSubscriptions(ctx, ids.subscriptionIDs)
-	if err != nil {
-		return err
+
+	wg.Add(5)
+	go func() { defer wg.Done(); v, e := r.loadUsers(ctx, ids.userIDs); if e != nil { setErr(e) } else { users = v } }()
+	go func() { defer wg.Done(); v, e := r.loadAPIKeys(ctx, ids.apiKeyIDs); if e != nil { setErr(e) } else { apiKeys = v } }()
+	go func() { defer wg.Done(); v, e := r.loadAccounts(ctx, ids.accountIDs); if e != nil { setErr(e) } else { accounts = v } }()
+	go func() { defer wg.Done(); v, e := r.loadGroups(ctx, ids.groupIDs); if e != nil { setErr(e) } else { groups = v } }()
+	go func() { defer wg.Done(); v, e := r.loadSubscriptions(ctx, ids.subscriptionIDs); if e != nil { setErr(e) } else { subs = v } }()
+	wg.Wait()
+
+	if firstErr != nil {
+		return firstErr
 	}
 
 	for i := range logs {

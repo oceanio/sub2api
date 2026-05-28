@@ -1,8 +1,10 @@
 <template>
   <!-- Row 1: Core Stats -->
   <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
-    <!-- Balance -->
-    <div v-if="!isSimple" class="card p-4">
+    <!-- Balance: hide personal balance for team members — they pay from team
+         pool, the personal balance card is irrelevant and visually competes
+         with the team sub-quota card below. -->
+    <div v-if="!isSimple && !teamMember" class="card p-4">
       <div class="flex items-center gap-3">
         <div class="rounded-lg bg-emerald-100 p-2 dark:bg-emerald-900/30">
           <svg class="h-5 w-5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -13,6 +15,32 @@
           <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.balance') }}</p>
           <p class="text-xl font-bold text-emerald-600 dark:text-emerald-400">${{ formatBalance(balance) }}</p>
           <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('common.available') }}</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Team sub-quota (only for team members) -->
+    <div v-if="teamMember && !isSimple" class="card p-4">
+      <div class="flex items-center gap-3">
+        <div class="rounded-lg bg-violet-100 p-2 dark:bg-violet-900/30">
+          <svg class="h-5 w-5 text-violet-600 dark:text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+          </svg>
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('team.overview.balance') }}</p>
+          <p v-if="teamMember.sub_quota === 0" class="text-xl font-bold text-violet-600 dark:text-violet-400">∞</p>
+          <template v-else>
+            <p class="text-sm font-bold text-violet-600 dark:text-violet-400">
+              ${{ teamMember.sub_quota_used.toFixed(2) }} / ${{ teamMember.sub_quota.toFixed(2) }}
+            </p>
+            <div class="mt-1 h-1.5 w-full rounded-full bg-gray-200 dark:bg-dark-700">
+              <div
+                class="h-1.5 rounded-full bg-violet-500 transition-all"
+                :style="{ width: `${Math.min(100, (teamMember.sub_quota_used / teamMember.sub_quota) * 100)}%` }"
+              />
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -54,13 +82,11 @@
         <div>
           <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.todayCost') }}</p>
           <p class="text-xl font-bold text-gray-900 dark:text-white">
-            <span class="text-purple-600 dark:text-purple-400" :title="t('dashboard.actual')">${{ formatCost(stats?.today_actual_cost || 0) }}</span>
-            <span class="text-sm font-normal text-gray-400 dark:text-gray-500" :title="t('dashboard.standard')"> / ${{ formatCost(stats?.today_cost || 0) }}</span>
+            <span class="text-purple-600 dark:text-purple-400">${{ formatCost(stats?.today_actual_cost || 0) }}</span>
           </p>
           <p class="text-xs">
             <span class="text-gray-500 dark:text-gray-400">{{ t('common.total') }}: </span>
-            <span class="text-purple-600 dark:text-purple-400" :title="t('dashboard.actual')">${{ formatCost(stats?.total_actual_cost || 0) }}</span>
-            <span class="text-gray-400 dark:text-gray-500" :title="t('dashboard.standard')"> / ${{ formatCost(stats?.total_cost || 0) }}</span>
+            <span class="text-purple-600 dark:text-purple-400">${{ formatCost(stats?.total_actual_cost || 0) }}</span>
           </p>
         </div>
       </div>
@@ -239,10 +265,13 @@ interface FusedPlatformCard {
   quota?: PlatformQuotaItem
 }
 
+import type { TeamMember } from '@/api/team'
+
 const props = defineProps<{
   stats: UserStatsType
   balance: number
   isSimple: boolean
+  teamMember?: TeamMember | null
   platformQuotas?: PlatformQuotaItem[] | null
 }>()
 const { t } = useI18n()

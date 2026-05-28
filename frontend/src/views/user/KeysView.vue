@@ -141,13 +141,13 @@
               <div class="flex items-center gap-1.5">
                 <span class="text-gray-500 dark:text-gray-400">{{ t('keys.today') }}:</span>
                 <span class="font-medium text-gray-900 dark:text-white">
-                  ${{ (usageStats[row.id]?.today_actual_cost ?? 0).toFixed(4) }}
+                  {{ formatCacheTokens(usageStats[row.id]?.today_tokens ?? 0) }} tokens
                 </span>
               </div>
               <div class="mt-0.5 flex items-center gap-1.5">
                 <span class="text-gray-500 dark:text-gray-400">{{ t('keys.total') }}:</span>
                 <span class="font-medium text-gray-900 dark:text-white">
-                  ${{ (usageStats[row.id]?.total_actual_cost ?? 0).toFixed(4) }}
+                  {{ formatCacheTokens(usageStats[row.id]?.total_tokens ?? 0) }} tokens
                 </span>
               </div>
               <!-- Quota progress (if quota is set) -->
@@ -1080,6 +1080,7 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import type { Column } from '@/components/common/types'
 import type { BatchApiKeyUsageStats } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
+import { formatCacheTokens } from '@/utils/formatters'
 import { maskApiKey } from '@/utils/maskApiKey'
 import {
   buildCcSwitchImportDeeplink,
@@ -1129,7 +1130,7 @@ let resetTimer: ReturnType<typeof setInterval> | null = null
 const usageStats = ref<Record<string, BatchApiKeyUsageStats>>({})
 const userGroupRates = ref<Record<number, number>>({})
 
-// Fork: 从公开设置读取"折扣显示"开关与汇率；关闭时各组件回退到原始倍率
+// 从公开设置读取"折扣显示"开关与汇率；关闭时各组件回退到原始倍率
 const displayDiscountEnabled = computed(() => appStore.cachedPublicSettings?.display_discount_enabled === true)
 const usdExchangeRate = computed(() => appStore.cachedPublicSettings?.usd_exchange_rate ?? undefined)
 
