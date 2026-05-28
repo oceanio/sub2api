@@ -327,6 +327,8 @@
                       :platform="(option as unknown as GroupOption).platform"
                       :subscription-type="(option as unknown as GroupOption).subscriptionType"
                       :rate-multiplier="(option as unknown as GroupOption).rate"
+                      :display-discount="displayDiscountEnabled"
+                      :exchange-rate="usdExchangeRate"
                     />
                     <span v-else class="text-gray-400">{{
                       t('admin.redeem.selectGroupPlaceholder')
@@ -340,6 +342,8 @@
                       :rate-multiplier="(option as unknown as GroupOption).rate"
                       :description="(option as unknown as GroupOption).description"
                       :selected="selected"
+                      :display-discount="displayDiscountEnabled"
+                      :exchange-rate="usdExchangeRate"
                     />
                   </template>
                 </Select>
@@ -638,6 +642,13 @@ import Icon from '@/components/icons/Icon.vue'
 const { t } = useI18n()
 const appStore = useAppStore()
 const { copyToClipboard: clipboardCopy } = useClipboard()
+
+const displayDiscountEnabled = computed(
+  () => appStore.cachedPublicSettings?.display_discount_enabled === true
+)
+const usdExchangeRate = computed(
+  () => appStore.cachedPublicSettings?.usd_exchange_rate ?? undefined
+)
 
 interface GroupOption {
   value: number

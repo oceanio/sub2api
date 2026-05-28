@@ -54,6 +54,8 @@
                   :subscription-type="k.group.subscription_type"
                   :rate-multiplier="k.group.rate_multiplier"
                   :user-rate-multiplier="userGroupRates[k.group.id]"
+                  :display-discount="displayDiscountEnabled"
+                  :exchange-rate="usdExchangeRate"
                 />
                 <span v-else class="text-xs text-gray-400">—</span>
               </td>
@@ -75,11 +77,20 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useAppStore } from '@/stores/app'
 import type { ApiKey } from '@/types'
 import type { Provider } from '@/api/admin/channelMonitor'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import { maskApiKey } from '@/utils/maskApiKey'
+
+const appStore = useAppStore()
+const displayDiscountEnabled = computed(
+  () => appStore.cachedPublicSettings?.display_discount_enabled === true
+)
+const usdExchangeRate = computed(
+  () => appStore.cachedPublicSettings?.usd_exchange_rate ?? undefined
+)
 
 const props = withDefaults(defineProps<{
   show: boolean
