@@ -98,6 +98,7 @@ func provideCleanup(
 	backupSvc *service.BackupService,
 	paymentOrderExpiry *service.PaymentOrderExpiryService,
 	channelMonitorRunner *service.ChannelMonitorRunner,
+	debugLogSvc *service.RequestDebugLogService, // Fork: debug-log 异步 worker，进程退出前 Stop
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -243,6 +244,12 @@ func provideCleanup(
 			{"ChannelMonitorRunner", func() error {
 				if channelMonitorRunner != nil {
 					channelMonitorRunner.Stop()
+				}
+				return nil
+			}},
+			{"RequestDebugLogService", func() error {
+				if debugLogSvc != nil {
+					debugLogSvc.Stop()
 				}
 				return nil
 			}},

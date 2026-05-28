@@ -2,6 +2,7 @@ package handler
 
 import (
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
+	"github.com/Wei-Shaw/sub2api/internal/handler/teamscoped"
 )
 
 // AdminHandlers contains all admin-related HTTP handlers
@@ -37,6 +38,7 @@ type AdminHandlers struct {
 	Payment                *admin.PaymentHandler
 	Affiliate              *admin.AffiliateHandler
 	DebugLog               *admin.RequestDebugLogHandler
+	Team                   *admin.AdminTeamHandler
 }
 
 // Handlers contains all HTTP handlers
@@ -57,6 +59,8 @@ type Handlers struct {
 	Payment          *PaymentHandler
 	PaymentWebhook   *PaymentWebhookHandler
 	AvailableChannel *AvailableChannelHandler
+	Team             *TeamHandler
+	TeamScoped       *teamscoped.Handler
 }
 
 // BuildInfo contains build-time information

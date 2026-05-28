@@ -19,4 +19,5 @@ var ProviderSet = wire.NewSet(
 	NewJWTAuthMiddleware,
 	NewAdminAuthMiddleware,
 	NewAPIKeyAuthMiddleware,
+	NewTeamAuthMiddleware, // Fork: team-admin 路由鉴权
 )

@@ -1097,6 +1097,10 @@ type PublicSettingsInjectionPayload struct {
 	AvailableChannelsEnabled             bool `json:"available_channels_enabled"`
 	AffiliateEnabled                     bool `json:"affiliate_enabled"`
 	RiskControlEnabled                   bool `json:"risk_control_enabled"`
+	// Fork: 折扣显示 + 本币汇率（前端 KeysView 等会用到）
+	DisplayDiscountEnabled bool    `json:"display_discount_enabled"`
+	LocalCurrency          string  `json:"local_currency"`
+	USDExchangeRate        float64 `json:"usd_exchange_rate"`
 }
 
 // GetPublicSettingsForInjection returns public settings in a format suitable for HTML injection.
@@ -1159,6 +1163,10 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		AvailableChannelsEnabled:             settings.AvailableChannelsEnabled,
 		AffiliateEnabled:                     settings.AffiliateEnabled,
 		RiskControlEnabled:                   settings.RiskControlEnabled,
+		// Fork: 折扣显示 + 本币汇率
+		DisplayDiscountEnabled: settings.DisplayDiscountEnabled,
+		LocalCurrency:          settings.LocalCurrency,
+		USDExchangeRate:        settings.USDExchangeRate,
 	}, nil
 }
 

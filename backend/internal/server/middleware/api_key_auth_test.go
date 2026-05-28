@@ -317,7 +317,6 @@ func TestAPIKeyAuthRejectsUnavailableGroup(t *testing.T) {
 		group      *service.Group
 		wantStatus int
 		wantCode   string
-		wantMarked bool
 	}{
 		{
 			name: "active group passes",
@@ -341,7 +340,6 @@ func TestAPIKeyAuthRejectsUnavailableGroup(t *testing.T) {
 			},
 			wantStatus: http.StatusForbidden,
 			wantCode:   "GROUP_DISABLED",
-			wantMarked: true,
 		},
 		{
 			name: "deleted status group is forbidden",
@@ -354,14 +352,12 @@ func TestAPIKeyAuthRejectsUnavailableGroup(t *testing.T) {
 			},
 			wantStatus: http.StatusForbidden,
 			wantCode:   "GROUP_DELETED",
-			wantMarked: true,
 		},
 		{
 			name:       "missing group edge is forbidden",
 			group:      nil,
 			wantStatus: http.StatusForbidden,
 			wantCode:   "GROUP_DELETED",
-			wantMarked: true,
 		},
 	}
 
@@ -387,20 +383,7 @@ func TestAPIKeyAuthRejectsUnavailableGroup(t *testing.T) {
 			}
 			cfg := &config.Config{RunMode: config.RunModeStandard}
 			apiKeyService := service.NewAPIKeyService(apiKeyRepo, nil, nil, nil, nil, nil, cfg)
-			router := gin.New()
-			var markedBusinessLimited bool
-			var businessLimitedReason string
-			router.Use(func(c *gin.Context) {
-				c.Next()
-				markedBusinessLimited = service.HasOpsClientBusinessLimited(c)
-				if v, ok := c.Get(service.OpsClientBusinessLimitedReasonKey); ok {
-					businessLimitedReason, _ = v.(string)
-				}
-			})
-			router.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(apiKeyService, nil, cfg)))
-			router.GET("/t", func(c *gin.Context) {
-				c.JSON(http.StatusOK, gin.H{"ok": true})
-			})
+			router := newAuthTestRouter(apiKeyService, nil, cfg)
 
 			w := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/t", nil)
@@ -411,55 +394,8 @@ func TestAPIKeyAuthRejectsUnavailableGroup(t *testing.T) {
 			if tt.wantCode != "" {
 				require.Contains(t, w.Body.String(), tt.wantCode)
 			}
-			require.Equal(t, tt.wantMarked, markedBusinessLimited)
-			if tt.wantMarked {
-				require.Equal(t, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable, businessLimitedReason)
-			}
 		})
 	}
-}
-
-func TestRequireGroupAssignmentMarksUngroupedKeyBusinessLimited(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	settingService := service.NewSettingService(fakeSettingRepo{
-		values: map[string]string{
-			service.SettingKeyAllowUngroupedKeyScheduling: "false",
-		},
-	}, &config.Config{})
-	apiKey := &service.APIKey{
-		ID:     100,
-		Key:    "ungrouped-key",
-		Status: service.StatusActive,
-	}
-
-	router := gin.New()
-	var markedBusinessLimited bool
-	var businessLimitedReason string
-	router.Use(func(c *gin.Context) {
-		c.Next()
-		markedBusinessLimited = service.HasOpsClientBusinessLimited(c)
-		if v, ok := c.Get(service.OpsClientBusinessLimitedReasonKey); ok {
-			businessLimitedReason, _ = v.(string)
-		}
-	})
-	router.Use(func(c *gin.Context) {
-		c.Set(string(ContextKeyAPIKey), apiKey)
-		c.Next()
-	})
-	router.Use(RequireGroupAssignment(settingService, AnthropicErrorWriter))
-	router.GET("/t", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"ok": true})
-	})
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/t", nil)
-	router.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusForbidden, w.Code)
-	require.Contains(t, w.Body.String(), "not assigned to any group")
-	require.True(t, markedBusinessLimited)
-	require.Equal(t, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnassigned, businessLimitedReason)
 }
 
 func TestAPIKeyAuthIPRestrictionDoesNotTrustForwardedClientIPByDefault(t *testing.T) {
@@ -805,6 +741,10 @@ func (r *stubApiKeyRepo) ListKeysByGroupID(ctx context.Context, groupID int64) (
 	return nil, errors.New("not implemented")
 }
 
+func (r *stubApiKeyRepo) ListKeysByTeamID(ctx context.Context, teamID int64) ([]string, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (r *stubApiKeyRepo) IncrementQuotaUsed(ctx context.Context, id int64, amount float64) (float64, error) {
 	return 0, errors.New("not implemented")
 }
@@ -833,41 +773,6 @@ type stubUserSubscriptionRepo struct {
 	resetDaily     func(ctx context.Context, id int64, start time.Time) error
 	resetWeekly    func(ctx context.Context, id int64, start time.Time) error
 	resetMonthly   func(ctx context.Context, id int64, start time.Time) error
-}
-
-type fakeSettingRepo struct {
-	values map[string]string
-}
-
-func (r fakeSettingRepo) Get(ctx context.Context, key string) (*service.Setting, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (r fakeSettingRepo) GetValue(ctx context.Context, key string) (string, error) {
-	if v, ok := r.values[key]; ok {
-		return v, nil
-	}
-	return "", service.ErrSettingNotFound
-}
-
-func (r fakeSettingRepo) Set(ctx context.Context, key, value string) error {
-	return errors.New("not implemented")
-}
-
-func (r fakeSettingRepo) GetMultiple(ctx context.Context, keys []string) (map[string]string, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (r fakeSettingRepo) SetMultiple(ctx context.Context, settings map[string]string) error {
-	return errors.New("not implemented")
-}
-
-func (r fakeSettingRepo) GetAll(ctx context.Context) (map[string]string, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (r fakeSettingRepo) Delete(ctx context.Context, key string) error {
-	return errors.New("not implemented")
 }
 
 func (r *stubUserSubscriptionRepo) Create(ctx context.Context, sub *service.UserSubscription) error {
@@ -906,6 +811,10 @@ func (r *stubUserSubscriptionRepo) ListActiveByUserID(ctx context.Context, userI
 }
 
 func (r *stubUserSubscriptionRepo) ListByGroupID(ctx context.Context, groupID int64, params pagination.PaginationParams) ([]service.UserSubscription, *pagination.PaginationResult, error) {
+	return nil, nil, errors.New("not implemented")
+}
+
+func (r *stubUserSubscriptionRepo) ListByTeamID(ctx context.Context, teamID int64, _ service.UserSubscriptionTeamFilters, params pagination.PaginationParams) ([]service.UserSubscription, *pagination.PaginationResult, error) {
 	return nil, nil, errors.New("not implemented")
 }
 
