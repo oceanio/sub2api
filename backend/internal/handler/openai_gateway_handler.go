@@ -37,6 +37,7 @@ type OpenAIGatewayHandler struct {
 	imageLimiter             *imageConcurrencyLimiter
 	maxAccountSwitches       int
 	cfg                      *config.Config
+	debugLogService          *service.RequestDebugLogService
 }
 
 func resolveOpenAIMessagesDispatchMappedModel(apiKey *service.APIKey, requestedModel string) string {
@@ -56,6 +57,7 @@ func NewOpenAIGatewayHandler(
 	errorPassthroughService *service.ErrorPassthroughService,
 	contentModerationService *service.ContentModerationService,
 	cfg *config.Config,
+	debugLogService *service.RequestDebugLogService,
 ) *OpenAIGatewayHandler {
 	pingInterval := time.Duration(0)
 	maxAccountSwitches := 3
@@ -76,6 +78,7 @@ func NewOpenAIGatewayHandler(
 		imageLimiter:             &imageConcurrencyLimiter{},
 		maxAccountSwitches:       maxAccountSwitches,
 		cfg:                      cfg,
+		debugLogService:          debugLogService,
 	}
 }
 
@@ -333,6 +336,13 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
 		writerSizeBeforeForward := c.Writer.Size()
+		// Fork: 调试日志采样命中则 wrap c.Writer 捕获响应体
+		debugLog := shouldDebugLog(h.debugLogService, c.Request.Context())
+		var respCap *responseCapture
+		if debugLog {
+			respCap = newResponseCapture(c.Writer, h.debugLogService.MaxBodyBytes())
+			c.Writer = respCap
+		}
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
@@ -462,6 +472,13 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				).Error("openai.record_usage_failed", zap.Error(err))
 			}
 		})
+		if debugLog {
+			var respBody []byte
+			if respCap != nil {
+				respBody = respCap.captured()
+			}
+			enqueueDebugLog(h.debugLogService, c.Request.Context(), result.RequestID, apiKey, reqModel, reqStream, service.DebugLogProtocolOpenAI, c.Request.Header, body, c.Writer.Header(), respBody)
+		}
 		reqLog.Debug("openai.request_completed",
 			zap.Int64("account_id", account.ID),
 			zap.Int("switch_count", switchCount),
@@ -730,6 +747,13 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		if channelMappingMsg.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMappingMsg.MappedModel)
 		}
+		// Fork: 调试日志采样命中则 wrap c.Writer 捕获响应体
+		debugLog := shouldDebugLog(h.debugLogService, c.Request.Context())
+		var respCap *responseCapture
+		if debugLog {
+			respCap = newResponseCapture(c.Writer, h.debugLogService.MaxBodyBytes())
+			c.Writer = respCap
+		}
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
@@ -846,6 +870,13 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				).Error("openai_messages.record_usage_failed", zap.Error(err))
 			}
 		})
+		if debugLog {
+			var respBody []byte
+			if respCap != nil {
+				respBody = respCap.captured()
+			}
+			enqueueDebugLog(h.debugLogService, c.Request.Context(), result.RequestID, apiKey, reqModel, reqStream, service.DebugLogProtocolAnthropic, c.Request.Header, body, c.Writer.Header(), respBody)
+		}
 		reqLog.Debug("openai_messages.request_completed",
 			zap.Int64("account_id", account.ID),
 			zap.Int("switch_count", switchCount),

@@ -542,6 +542,8 @@ func registerUsageRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		usage.GET("/cleanup-tasks", h.Admin.Usage.ListCleanupTasks)
 		usage.POST("/cleanup-tasks", h.Admin.Usage.CreateCleanupTask)
 		usage.POST("/cleanup-tasks/:id/cancel", h.Admin.Usage.CancelCleanupTask)
+		// Fork: 请求调试日志详情
+		usage.GET("/:request_id/debug-log", h.Admin.DebugLog.GetByRequestID)
 	}
 }
 

@@ -54,6 +54,7 @@ type GatewayHandler struct {
 	maxAccountSwitchesGemini  int
 	cfg                       *config.Config
 	settingService            *service.SettingService
+	debugLogService           *service.RequestDebugLogService
 }
 
 // NewGatewayHandler creates a new GatewayHandler
@@ -72,6 +73,7 @@ func NewGatewayHandler(
 	userMsgQueueService *service.UserMessageQueueService,
 	cfg *config.Config,
 	settingService *service.SettingService,
+	debugLogService *service.RequestDebugLogService,
 ) *GatewayHandler {
 	pingInterval := time.Duration(0)
 	maxAccountSwitches := 10
@@ -109,6 +111,7 @@ func NewGatewayHandler(
 		maxAccountSwitchesGemini:  maxAccountSwitchesGemini,
 		cfg:                       cfg,
 		settingService:            settingService,
+		debugLogService:           debugLogService,
 	}
 }
 
@@ -439,6 +442,13 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
+			// Fork: 调试日志采样命中则 wrap c.Writer，捕获响应体供后续异步入队（流式响应体无法事后再读）
+			debugLog := shouldDebugLog(h.debugLogService, c.Request.Context())
+			var respCap *responseCapture
+			if debugLog {
+				respCap = newResponseCapture(c.Writer, h.debugLogService.MaxBodyBytes())
+				c.Writer = respCap
+			}
 			if account.Platform == service.PlatformAntigravity {
 				result, err = h.antigravityGatewayService.ForwardGemini(requestCtx, c, account, reqModel, "generateContent", reqStream, body, hasBoundSession)
 			} else {
@@ -538,6 +548,13 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					).Error("gateway.record_usage_failed", zap.Error(err))
 				}
 			})
+			if debugLog {
+				var respBody []byte
+				if respCap != nil {
+					respBody = respCap.captured()
+				}
+				enqueueDebugLog(h.debugLogService, c.Request.Context(), result.RequestID, apiKey, reqModel, reqStream, service.DebugLogProtocolAnthropic, c.Request.Header, body, c.Writer.Header(), respBody)
+			}
 			return
 		}
 	}
@@ -761,6 +778,13 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
+			// Fork: 调试日志采样命中则 wrap c.Writer，捕获响应体供后续异步入队（流式响应体无法事后再读）
+			debugLog := shouldDebugLog(h.debugLogService, c.Request.Context())
+			var respCap *responseCapture
+			if debugLog {
+				respCap = newResponseCapture(c.Writer, h.debugLogService.MaxBodyBytes())
+				c.Writer = respCap
+			}
 			if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
 				result, err = h.antigravityGatewayService.Forward(requestCtx, c, account, body, hasBoundSession)
 			} else {
@@ -933,6 +957,13 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					).Error("gateway.record_usage_failed", zap.Error(err))
 				}
 			})
+			if debugLog {
+				var respBody []byte
+				if respCap != nil {
+					respBody = respCap.captured()
+				}
+				enqueueDebugLog(h.debugLogService, c.Request.Context(), result.RequestID, currentAPIKey, reqModel, reqStream, service.DebugLogProtocolAnthropic, c.Request.Header, body, c.Writer.Header(), respBody)
+			}
 			return
 		}
 		if !retryWithFallback {
