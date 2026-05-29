@@ -789,6 +789,10 @@ func (r *stubApiKeyRepo) ClearGroupIDByGroupID(ctx context.Context, groupID int6
 	return 0, errors.New("not implemented")
 }
 
+func (r *stubApiKeyRepo) ClearGroupIDByTeamAndGroup(ctx context.Context, teamID, groupID int64) (int64, error) {
+	return 0, errors.New("not implemented")
+}
+
 func (r *stubApiKeyRepo) UpdateGroupIDByUserAndGroup(ctx context.Context, userID, oldGroupID, newGroupID int64) (int64, error) {
 	return 0, errors.New("not implemented")
 }
