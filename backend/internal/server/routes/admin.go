@@ -98,7 +98,7 @@ func RegisterAdminRoutes(
 		// 邀请返利（专属用户管理）
 		registerAffiliateRoutes(admin, h)
 
-		// 团队管理
+		// Fork: 团队管理（sys-admin 视角）
 		registerAdminTeamRoutes(admin, h)
 	}
 }
@@ -454,7 +454,7 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		adminSettings.PUT("/web-search-emulation", h.Admin.Setting.UpdateWebSearchEmulationConfig)
 		adminSettings.POST("/web-search-emulation/test", h.Admin.Setting.TestWebSearchEmulation)
 		adminSettings.POST("/web-search-emulation/reset-usage", h.Admin.Setting.ResetWebSearchUsage)
-		// USD/CNY 汇率刷新
+		// Fork: 本币汇率从公开 API 刷新
 		adminSettings.POST("/exchange-rate/refresh", h.Admin.Setting.RefreshExchangeRate)
 	}
 }
@@ -547,6 +547,7 @@ func registerUsageRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		usage.GET("/cleanup-tasks", h.Admin.Usage.ListCleanupTasks)
 		usage.POST("/cleanup-tasks", h.Admin.Usage.CreateCleanupTask)
 		usage.POST("/cleanup-tasks/:id/cancel", h.Admin.Usage.CancelCleanupTask)
+		// Fork: 请求调试日志详情
 		usage.GET("/:request_id/debug-log", h.Admin.DebugLog.GetByRequestID)
 	}
 }
@@ -653,4 +654,3 @@ func registerAffiliateRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		}
 	}
 }
-

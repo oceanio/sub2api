@@ -96,10 +96,10 @@ var ProviderSet = wire.NewSet(
 	NewUserPlatformQuotaRepository,     // T14: user × platform quota
 	NewUserPlatformQuotaServiceAdapter, // T14: adapter → service.UserPlatformQuotaRepository
 
-	// Request Debug Log
+	// Request Debug Log (fork)
 	NewRequestDebugLogRepository,
 
-	// Team management
+	// Team management (fork)
 	NewTeamRepository,
 	NewTeamMemberRepository,
 	NewTeamAdminRepository,

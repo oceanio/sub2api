@@ -641,7 +641,7 @@ func NewGatewayService(
 	userRepo UserRepository,
 	userSubRepo UserSubscriptionRepository,
 	userGroupRateRepo UserGroupRateRepository,
-	teamGroupRateRepo TeamGroupRateRepository,
+	teamGroupRateRepo TeamGroupRateRepository, // Fork: team-group rate
 	cache GatewayCache,
 	cfg *config.Config,
 	schedulerSnapshot *SchedulerSnapshotService,
@@ -674,7 +674,7 @@ func NewGatewayService(
 		userRepo:              userRepo,
 		userSubRepo:           userSubRepo,
 		userGroupRateRepo:     userGroupRateRepo,
-		teamGroupRateRepo:     teamGroupRateRepo,
+		teamGroupRateRepo:     teamGroupRateRepo, // Fork
 		cache:                 cache,
 		digestStore:           digestStore,
 		cfg:                   cfg,
@@ -708,6 +708,7 @@ func NewGatewayService(
 		&svc.userGroupRateSF,
 		"service.gateway",
 	)
+	// Fork: team-group rate resolver 镜像 user 版（自带 cache + singleflight）
 	svc.teamGroupRateResolver = newTeamGroupRateResolver(
 		teamGroupRateRepo,
 		svc.teamGroupRateCache,

@@ -249,20 +249,20 @@ type SystemSettings struct {
 	// OpenAI fast/flex policy
 	OpenAIFastPolicySettings *OpenAIFastPolicySettings `json:"openai_fast_policy_settings,omitempty"`
 
-	// Request Debug Log
+	// 系统全局默认平台配额（key = platform，nil/缺省 = 不限制）
+	DefaultPlatformQuotas map[string]*service.DefaultPlatformQuotaSetting `json:"default_platform_quotas,omitempty"`
+
+	// Fork: Request Debug Log
 	DebugRequestLogEnabled       bool `json:"debug_request_log_enabled"`
 	DebugRequestLogTTLHours      int  `json:"debug_request_log_ttl_hours"`
 	DebugRequestLogSampleRate    int  `json:"debug_request_log_sample_rate"`
 	DebugRequestLogRedactHeaders bool `json:"debug_request_log_redact_headers"`
 	DebugRequestLogBodyLimit     int  `json:"debug_request_log_body_limit_bytes"`
 
-	// 折扣显示
+	// Fork: 折扣显示 + 本币汇率
 	DisplayDiscountEnabled bool    `json:"display_discount_enabled"`
 	LocalCurrency          string  `json:"local_currency"`
 	USDExchangeRate        float64 `json:"usd_exchange_rate"`
-
-	// 系统全局默认平台配额（key = platform，nil/缺省 = 不限制）
-	DefaultPlatformQuotas map[string]*service.DefaultPlatformQuotaSetting `json:"default_platform_quotas,omitempty"`
 }
 
 type DefaultSubscriptionSetting struct {
@@ -328,6 +328,7 @@ type PublicSettings struct {
 
 	RiskControlEnabled bool `json:"risk_control_enabled"`
 
+	// Fork: 折扣显示 + 本币汇率（暴露给前端用于分组徽章显示）
 	DisplayDiscountEnabled bool    `json:"display_discount_enabled"`
 	LocalCurrency          string  `json:"local_currency"`
 	USDExchangeRate        float64 `json:"usd_exchange_rate"`

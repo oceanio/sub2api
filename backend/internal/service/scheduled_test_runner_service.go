@@ -121,6 +121,8 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 
 func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *ScheduledTestPlan) {
 	// auto_recover 模式下，账号当前可调度则无需测试，直接推进下次执行时间。
+	// 该模式的定时检测本质上只是为了让"异常账号"恢复正常；账号已健康时跑测试
+	// 是无谓消耗（占用配额、可能命中限流），跳过即可。
 	if plan.AutoRecover && s.rateLimitSvc != nil {
 		schedulable, err := s.rateLimitSvc.IsAccountSchedulable(ctx, plan.AccountID)
 		if err != nil {

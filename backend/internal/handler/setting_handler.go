@@ -99,6 +99,7 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 
 		RiskControlEnabled: settings.RiskControlEnabled,
 
+		// Fork: 折扣显示 + 本币汇率
 		DisplayDiscountEnabled: settings.DisplayDiscountEnabled,
 		LocalCurrency:          settings.LocalCurrency,
 		USDExchangeRate:        settings.USDExchangeRate,

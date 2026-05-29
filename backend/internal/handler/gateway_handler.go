@@ -442,6 +442,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
+			// Fork: 调试日志采样命中则 wrap c.Writer，捕获响应体供后续异步入队（流式响应体无法事后再读）
 			debugLog := shouldDebugLog(h.debugLogService, c.Request.Context())
 			var respCap *responseCapture
 			if debugLog {
@@ -453,6 +454,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			} else {
 				result, err = h.geminiCompatService.Forward(requestCtx, c, account, body)
 			}
+			// Fork: Forward 完成后立刻还原 c.Writer，避免后续错误兜底/failover 写入污染 capture buf
 			if respCap != nil {
 				c.Writer = respCap.ResponseWriter
 			}
@@ -785,6 +787,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
+			// Fork: 调试日志采样命中则 wrap c.Writer，捕获响应体供后续异步入队（流式响应体无法事后再读）
 			debugLog := shouldDebugLog(h.debugLogService, c.Request.Context())
 			var respCap *responseCapture
 			if debugLog {
@@ -796,6 +799,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			} else {
 				result, err = h.gatewayService.Forward(requestCtx, c, account, parsedReq)
 			}
+			// Fork: Forward 完成后立刻还原 c.Writer，避免后续错误兜底/failover 写入污染 capture buf
 			if respCap != nil {
 				c.Writer = respCap.ResponseWriter
 			}
@@ -2127,6 +2131,8 @@ func (h *GatewayHandler) submitUsageRecordTask(parentCtx context.Context, task s
 	if task == nil {
 		return
 	}
+	// Fork: 把 RequestID/ClientRequestID 从请求 ctx 透传到 worker 重建 ctx，
+	// 让 usage_logs 与 debug_log 落库时拿到同一 request_id。
 	task = wrapUsageTaskWithCtx(parentCtx, task)
 	if h.usageRecordWorkerPool != nil {
 		h.usageRecordWorkerPool.Submit(task)

@@ -418,7 +418,7 @@ func ProvideBillingCacheService(
 	rateRepo UserGroupRateRepository,
 	cfg *config.Config,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
-	teamRepo TeamRepository,
+	teamRepo TeamRepository, // Fork: team-key 计费需要查 team
 ) *BillingCacheService {
 	return NewBillingCacheService(cache, userRepo, subRepo, apiKeyRepo, rpmCache, rateRepo, cfg, userPlatformQuotaRepo, teamRepo)
 }
@@ -433,17 +433,18 @@ func ProvideAPIKeyService(
 	cache APIKeyCache,
 	cfg *config.Config,
 	billingCacheService *BillingCacheService,
+	// Fork: team 相关注入（通过 Setter 注入避免破坏 NewAPIKeyService 签名）
 	entClient *dbent.Client,
 	teamMemberRepo TeamMemberRepository,
 	teamGroupRateRepo TeamGroupRateRepository,
 	teamAllowedGroupRepo TeamAllowedGroupRepository,
 ) *APIKeyService {
 	svc := NewAPIKeyService(apiKeyRepo, userRepo, groupRepo, userSubRepo, userGroupRateRepo, cache, cfg)
-	svc.SetRateLimitCacheInvalidator(billingCacheService)
 	svc.SetEntClient(entClient)
 	svc.SetTeamMemberRepository(teamMemberRepo)
 	svc.SetTeamGroupRateRepository(teamGroupRateRepo)
 	svc.SetTeamAllowedGroupRepository(teamAllowedGroupRepo)
+	svc.SetRateLimitCacheInvalidator(billingCacheService)
 	return svc
 }
 
@@ -541,7 +542,7 @@ var ProviderSet = wire.NewSet(
 	ProvideChannelMonitorRunner,
 	NewChannelMonitorRequestTemplateService,
 	ProvideRequestDebugLogService,
-	NewTeamService,
+	NewTeamService, // Fork
 )
 
 // ProvidePaymentConfigService wraps NewPaymentConfigService to accept the named
@@ -591,7 +592,8 @@ func ProvideChannelMonitorRunner(svc *ChannelMonitorService, settingService *Set
 	return r
 }
 
-// ProvideRequestDebugLogService creates and starts RequestDebugLogService.
+// ProvideRequestDebugLogService 创建并启动 RequestDebugLogService。
+// service 启动后才会消费入队消息，cleanup function 负责 Stop。
 func ProvideRequestDebugLogService(repo RequestDebugLogRepository, settingService *SettingService) *RequestDebugLogService {
 	svc := NewRequestDebugLogService(repo, settingService)
 	svc.Start()

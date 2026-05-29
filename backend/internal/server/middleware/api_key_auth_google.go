@@ -105,9 +105,8 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 				subscriptionService.DoWindowMaintenance(&maintenanceCopy)
 			}
 		} else {
-			// Team key: team balance + sub_quota are checked downstream by
-			// billing_cache_service.checkTeamBillingEligibility. Personal key
-			// (TeamID == nil) keeps the original early-fail behaviour.
+			// Fork: Team key 走团队余额（billing_cache_service.checkTeamBillingEligibility
+			// 做完整检查），不走个人余额 early-fail。
 			if apiKey.TeamID == nil && apiKey.User.Balance <= 0 {
 				abortWithGoogleError(c, 403, "Insufficient account balance")
 				return

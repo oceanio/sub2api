@@ -15,7 +15,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 13 // v13: merge main into production — bump to invalidate caches missing either team_id (v12) or models_list_config (v11)
+const apiKeyAuthSnapshotVersion = 13 // v13: snapshot now mirrors Group.ModelsListConfig — invalidate v12 caches that were missing the field
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int

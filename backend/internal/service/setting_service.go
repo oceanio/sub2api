@@ -1094,14 +1094,15 @@ type PublicSettingsInjectionPayload struct {
 	// Feature flags — MUST match the opt-in/opt-out registry in
 	// frontend/src/utils/featureFlags.ts. Missing a field here is the bug
 	// that hid the "可用渠道" menu on page refresh.
-	ChannelMonitorEnabled                bool    `json:"channel_monitor_enabled"`
-	ChannelMonitorDefaultIntervalSeconds int     `json:"channel_monitor_default_interval_seconds"`
-	AvailableChannelsEnabled             bool    `json:"available_channels_enabled"`
-	AffiliateEnabled                     bool    `json:"affiliate_enabled"`
-	RiskControlEnabled                   bool    `json:"risk_control_enabled"`
-	DisplayDiscountEnabled               bool    `json:"display_discount_enabled"`
-	LocalCurrency                        string  `json:"local_currency"`
-	USDExchangeRate                      float64 `json:"usd_exchange_rate"`
+	ChannelMonitorEnabled                bool `json:"channel_monitor_enabled"`
+	ChannelMonitorDefaultIntervalSeconds int  `json:"channel_monitor_default_interval_seconds"`
+	AvailableChannelsEnabled             bool `json:"available_channels_enabled"`
+	AffiliateEnabled                     bool `json:"affiliate_enabled"`
+	RiskControlEnabled                   bool `json:"risk_control_enabled"`
+	// Fork: 折扣显示 + 本币汇率（前端 KeysView 等会用到）
+	DisplayDiscountEnabled bool    `json:"display_discount_enabled"`
+	LocalCurrency          string  `json:"local_currency"`
+	USDExchangeRate        float64 `json:"usd_exchange_rate"`
 }
 
 // GetPublicSettingsForInjection returns public settings in a format suitable for HTML injection.
@@ -1164,9 +1165,10 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		AvailableChannelsEnabled:             settings.AvailableChannelsEnabled,
 		AffiliateEnabled:                     settings.AffiliateEnabled,
 		RiskControlEnabled:                   settings.RiskControlEnabled,
-		DisplayDiscountEnabled:               settings.DisplayDiscountEnabled,
-		LocalCurrency:                        settings.LocalCurrency,
-		USDExchangeRate:                      settings.USDExchangeRate,
+		// Fork: 折扣显示 + 本币汇率
+		DisplayDiscountEnabled: settings.DisplayDiscountEnabled,
+		LocalCurrency:          settings.LocalCurrency,
+		USDExchangeRate:        settings.USDExchangeRate,
 	}, nil
 }
 

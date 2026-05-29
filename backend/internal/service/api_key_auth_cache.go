@@ -8,6 +8,12 @@ type APIKeyAuthSnapshot struct {
 	APIKeyID    int64                    `json:"api_key_id"`
 	UserID      int64                    `json:"user_id"`
 	GroupID     *int64                   `json:"group_id,omitempty"`
+	// Fork: team key 相关字段
+	TeamID               *int64  `json:"team_id,omitempty"`        // non-nil = team key（扣 team 余额）
+	TeamMemberID         *int64  `json:"team_member_id,omitempty"` // team_members.id，用于子配额跟踪
+	SubQuota             float64 `json:"sub_quota,omitempty"`      // 成员子配额上限
+	SubQuotaUsed         float64 `json:"sub_quota_used,omitempty"` // 当前已用
+	TeamGroupRPMOverride *int    `json:"team_group_rpm_override,omitempty"`
 	Name        string                   `json:"name"`
 	Status      string                   `json:"status"`
 	IPWhitelist []string                 `json:"ip_whitelist,omitempty"`
@@ -26,20 +32,6 @@ type APIKeyAuthSnapshot struct {
 	RateLimit5h float64 `json:"rate_limit_5h"`
 	RateLimit1d float64 `json:"rate_limit_1d"`
 	RateLimit7d float64 `json:"rate_limit_7d"`
-
-	// Team billing fields. Non-nil means this key belongs to a team and should
-	// deduct from teams.balance instead of user.balance.
-	TeamID       *int64  `json:"team_id,omitempty"`
-	TeamMemberID *int64  `json:"team_member_id,omitempty"` // team_members.id for sub_quota tracking
-	SubQuota     float64 `json:"sub_quota,omitempty"`      // per-member spend cap (0 = unlimited)
-	SubQuotaUsed float64 `json:"sub_quota_used,omitempty"` // current accumulated spend
-
-	// TeamGroupRPMOverride 该 (team, group) 对应的 RPM 覆盖值（仅当 TeamID 非空且
-	// 有 group 时填充）。语义同 User.UserGroupRPMOverride：nil = 无 override；
-	// 0 = 该团队成员在该分组免 RPM 检查；>0 = 上限值。
-	// 由 admin sys 编辑 team_group_rate_multipliers 触发整团队 auth cache 失效，
-	// 故无需 lazy 回退 DB 查询。
-	TeamGroupRPMOverride *int `json:"team_group_rpm_override,omitempty"`
 }
 
 // APIKeyAuthUserSnapshot 用户快照

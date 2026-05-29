@@ -7,6 +7,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
+// Fork: team-owned subscription listing 过滤器
 // UserSubscriptionTeamFilters scopes a team-owned subscription listing.
 // All fields are optional — empty means "no constraint".
 type UserSubscriptionTeamFilters struct {

@@ -334,7 +334,7 @@ type OpenAIGatewayService struct {
 	rateLimitService      *RateLimitService
 	billingCacheService   *BillingCacheService
 	userGroupRateResolver *userGroupRateResolver
-	teamGroupRateResolver *teamGroupRateResolver
+	teamGroupRateResolver *teamGroupRateResolver // Fork
 	httpUpstream          HTTPUpstream
 	deferredService       *DeferredService
 	openAITokenProvider   *OpenAITokenProvider
@@ -375,7 +375,7 @@ func NewOpenAIGatewayService(
 	userRepo UserRepository,
 	userSubRepo UserSubscriptionRepository,
 	userGroupRateRepo UserGroupRateRepository,
-	teamGroupRateRepo TeamGroupRateRepository,
+	teamGroupRateRepo TeamGroupRateRepository, // Fork: team-group rate
 	cache GatewayCache,
 	cfg *config.Config,
 	schedulerSnapshot *SchedulerSnapshotService,
@@ -413,7 +413,7 @@ func NewOpenAIGatewayService(
 			nil,
 			"service.openai_gateway",
 		),
-		teamGroupRateResolver: newTeamGroupRateResolver(
+		teamGroupRateResolver: newTeamGroupRateResolver( // Fork
 			teamGroupRateRepo,
 			nil,
 			resolveUserGroupRateCacheTTL(cfg),
