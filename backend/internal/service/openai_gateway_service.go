@@ -5493,11 +5493,29 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		multiplier = s.cfg.Default.RateMultiplier
 	}
 	if apiKey.GroupID != nil && apiKey.Group != nil {
-		resolver := s.userGroupRateResolver
-		if resolver == nil {
-			resolver = newUserGroupRateResolver(nil, nil, resolveUserGroupRateCacheTTL(s.cfg), nil, "service.openai_gateway")
+		// Fork: 三级倍率解析，优先级 user×group override > team×group override > group default。
+		// 旧实现只走 userGroupRateResolver.Resolve，team key 的 team×group override 不生效，
+		// 导致 admin 在 team_group_rate_multipliers 上设的 OpenAI 平台 group 折扣 silent 失效。
+		userResolver := s.userGroupRateResolver
+		if userResolver == nil {
+			userResolver = newUserGroupRateResolver(nil, nil, resolveUserGroupRateCacheTTL(s.cfg), nil, "service.openai_gateway")
 		}
-		multiplier = resolver.Resolve(ctx, user.ID, *apiKey.GroupID, apiKey.Group.RateMultiplier)
+		groupDefault := apiKey.Group.RateMultiplier
+		if override := userResolver.ResolveOverride(ctx, user.ID, *apiKey.GroupID); override != nil {
+			multiplier = *override
+		} else if apiKey.TeamID != nil && *apiKey.TeamID > 0 {
+			if r := s.teamGroupRateResolver; r != nil {
+				if teamOverride := r.ResolveOverride(ctx, *apiKey.TeamID, *apiKey.GroupID); teamOverride != nil {
+					multiplier = *teamOverride
+				} else {
+					multiplier = groupDefault
+				}
+			} else {
+				multiplier = groupDefault
+			}
+		} else {
+			multiplier = groupDefault
+		}
 	}
 	imageMultiplier := resolveImageRateMultiplier(apiKey, multiplier)
 
