@@ -136,3 +136,7 @@ docs/*
 frontend/coverage/
 aicodex
 output/
+
+.omc/
+spec.md
+TODO.md
