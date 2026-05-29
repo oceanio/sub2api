@@ -184,8 +184,11 @@ func TestHandleStreamingResponse_EmptyStream(t *testing.T) {
 
 	result, err := svc.handleStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, time.Now(), "model", "model", false)
 	_ = pr.Close()
+	// 上游 EOF 前未发送任何内容 → 网关可以安全 failover，返回 *UpstreamFailoverError。
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "missing terminal event")
+	var failoverErr *UpstreamFailoverError
+	require.True(t, errors.As(err, &failoverErr), "空流必须触发 failover，实际 err: %v", err)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
 	require.NotNil(t, result)
 }
 

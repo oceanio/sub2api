@@ -6752,6 +6752,10 @@ func truncateForLog(b []byte, maxBytes int) string {
 	// 保持一行，避免污染日志格式
 	s = strings.ReplaceAll(s, "\n", "\\n")
 	s = strings.ReplaceAll(s, "\r", "\\r")
+	// 兜底：上游若返回未识别的压缩格式或二进制错误体，原始字节可能进入
+	// fmt.Errorf 的 message，最终被 ops_error_logger 写入 PG UTF8 列触发编码错误。
+	// 这里统一替换无效 UTF-8 序列为 U+FFFD。
+	s = strings.ToValidUTF8(s, "�")
 	return s
 }
 
@@ -7920,7 +7924,27 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 		Usage ClaudeUsage `json:"usage"`
 	}
 	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
+		// 上游返回 200 但响应体不是合法 JSON（如中间代理注入了非 JSON 内容），触发 failover。
+		logger.LegacyPrintf("service.gateway",
+			"[Forward] Non-JSON 200 response (failover): Account=%d(%s) RequestID=%s ContentType=%s ContentEncoding=%s Body=%s",
+			account.ID, account.Name, resp.Header.Get("x-request-id"),
+			resp.Header.Get("Content-Type"), resp.Header.Get("Content-Encoding"),
+			truncateString(string(body), 500))
+		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			Platform:           account.Platform,
+			AccountID:          account.ID,
+			AccountName:        account.Name,
+			UpstreamStatusCode: resp.StatusCode,
+			UpstreamRequestID:  resp.Header.Get("x-request-id"),
+			Kind:               "non_json_200",
+			Message:            fmt.Sprintf("parse response: %v", err),
+			Detail:             truncateString(string(body), 200),
+		})
+		s.handleFailoverSideEffects(ctx, resp, account)
+		return nil, &UpstreamFailoverError{
+			StatusCode:   http.StatusBadGateway,
+			ResponseBody: body,
+		}
 	}
 
 	// 解析嵌套的 cache_creation 对象中的 5m/1h 明细

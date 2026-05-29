@@ -160,6 +160,9 @@ func (s *apiKeyRepoStubForGroupUpdate) SearchAPIKeys(context.Context, int64, str
 func (s *apiKeyRepoStubForGroupUpdate) ClearGroupIDByGroupID(context.Context, int64) (int64, error) {
 	panic("unexpected")
 }
+func (s *apiKeyRepoStubForGroupUpdate) ClearGroupIDByTeamAndGroup(context.Context, int64, int64) (int64, error) {
+	panic("unexpected")
+}
 func (s *apiKeyRepoStubForGroupUpdate) CountByGroupID(context.Context, int64) (int64, error) {
 	panic("unexpected")
 }
@@ -167,6 +170,9 @@ func (s *apiKeyRepoStubForGroupUpdate) ListKeysByUserID(context.Context, int64) 
 	panic("unexpected")
 }
 func (s *apiKeyRepoStubForGroupUpdate) ListKeysByGroupID(context.Context, int64) ([]string, error) {
+	panic("unexpected")
+}
+func (s *apiKeyRepoStubForGroupUpdate) ListKeysByTeamID(context.Context, int64) ([]string, error) {
 	panic("unexpected")
 }
 func (s *apiKeyRepoStubForGroupUpdate) IncrementQuotaUsed(context.Context, int64, float64) (float64, error) {
