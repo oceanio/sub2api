@@ -138,5 +138,7 @@ aicodex
 output/
 
 .omc/
+
+# Project planning notes (not tracked)
 spec.md
 TODO.md
