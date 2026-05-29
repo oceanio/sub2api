@@ -454,6 +454,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			} else {
 				result, err = h.geminiCompatService.Forward(requestCtx, c, account, body)
 			}
+			// Fork: Forward 完成后立刻还原 c.Writer，避免后续错误兜底/failover 写入污染 capture buf
+			if respCap != nil {
+				c.Writer = respCap.ResponseWriter
+			}
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}
@@ -789,6 +793,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				result, err = h.antigravityGatewayService.Forward(requestCtx, c, account, body, hasBoundSession)
 			} else {
 				result, err = h.gatewayService.Forward(requestCtx, c, account, parsedReq)
+			}
+			// Fork: Forward 完成后立刻还原 c.Writer，避免后续错误兜底/failover 写入污染 capture buf
+			if respCap != nil {
+				c.Writer = respCap.ResponseWriter
 			}
 
 			// 兜底释放串行锁（正常情况已通过回调提前释放）

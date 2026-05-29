@@ -351,6 +351,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			}()
 			return h.gatewayService.Forward(c.Request.Context(), c, account, forwardBody)
 		}()
+		// Fork: Forward 完成后立刻还原 c.Writer，避免后续错误兜底/failover 写入污染 capture buf
+		if respCap != nil {
+			c.Writer = respCap.ResponseWriter
+		}
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
 		upstreamLatencyMs, _ := getContextInt64(c, service.OpsUpstreamLatencyMsKey)
 		responseLatencyMs := forwardDurationMs
@@ -762,6 +766,10 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			}()
 			return h.gatewayService.ForwardAsAnthropic(c.Request.Context(), c, account, forwardBody, promptCacheKey, defaultMappedModel)
 		}()
+		// Fork: Forward 完成后立刻还原 c.Writer，避免后续错误兜底/failover 写入污染 capture buf
+		if respCap != nil {
+			c.Writer = respCap.ResponseWriter
+		}
 
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
 		upstreamLatencyMs, _ := getContextInt64(c, service.OpsUpstreamLatencyMsKey)

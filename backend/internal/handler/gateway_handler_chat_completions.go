@@ -260,6 +260,10 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		} else {
 			result, err = h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, parsedReq)
 		}
+		// Fork: Forward 完成后立刻还原 c.Writer，避免后续错误兜底/failover 写入污染 capture buf
+		if respCap != nil {
+			c.Writer = respCap.ResponseWriter
+		}
 
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()

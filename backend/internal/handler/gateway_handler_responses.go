@@ -234,6 +234,10 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			c.Writer = respCap
 		}
 		result, err := h.gatewayService.ForwardAsResponses(c.Request.Context(), c, account, forwardBody, parsedReq)
+		// Fork: Forward 完成后立刻还原 c.Writer，避免后续错误兜底/failover 写入污染 capture buf
+		if respCap != nil {
+			c.Writer = respCap.ResponseWriter
+		}
 
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
