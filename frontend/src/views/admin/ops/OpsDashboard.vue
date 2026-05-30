@@ -81,6 +81,7 @@
           :time-range="timeRange"
           @open-request-errors="openErrorDetails('request')"
           @open-upstream-errors="openErrorDetails('upstream')"
+          @open-business-limited="openErrorDetails('business_limited')"
         />
       </div>
 
@@ -454,7 +455,7 @@ function handleOpenRequestDetails(preset?: OpsRequestDetailsPreset) {
   showRequestDetails.value = true
 }
 
-function openErrorDetails(kind: 'request' | 'upstream') {
+function openErrorDetails(kind: 'request' | 'upstream' | 'business_limited') {
   errorDetailsType.value = kind
   // Ensure only one modal visible at a time.
   showRequestDetails.value = false
