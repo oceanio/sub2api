@@ -124,9 +124,13 @@ func TestDefaultPricingIncludesCodexAutoReview(t *testing.T) {
 
 	got := svc.GetModelPricing("codex-auto-review")
 	require.NotNil(t, got)
-	require.InDelta(t, 2.5e-6, got.InputCostPerToken, 1e-12)
-	require.InDelta(t, 1.5e-5, got.OutputCostPerToken, 1e-12)
-	require.InDelta(t, 2.5e-7, got.CacheReadInputTokenCost, 1e-12)
+	// 数据源 model_prices_and_context_window.json 中 codex-auto-review 的标准价格：
+	// input=5e-6, output=3e-5, cache_read=5e-7
+	// （原断言用的是 *_flex 价格 2.5e-6/1.5e-5/2.5e-7，与 GetModelPricing 返回的
+	//  标准价不匹配；从 upstream pricing data 同步后这里需要按实际标准价断言。）
+	require.InDelta(t, 5e-6, got.InputCostPerToken, 1e-12)
+	require.InDelta(t, 3e-5, got.OutputCostPerToken, 1e-12)
+	require.InDelta(t, 5e-7, got.CacheReadInputTokenCost, 1e-12)
 }
 
 func TestGetModelPricing_Gpt54MiniUsesDedicatedStaticFallbackWhenRemoteMissing(t *testing.T) {
