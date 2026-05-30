@@ -277,6 +277,13 @@ export default {
     email: 'Email',
     password: 'Password',
     submit: 'Submit',
+    apply: 'Apply',
+    clear: 'Clear',
+    creating: 'Creating...',
+    sending: 'Sending...',
+    loadFailed: 'Failed to load',
+    required: 'is required',
+    tryAgain: 'Please try again',
     back: 'Back',
     next: 'Next',
     yes: 'Yes',
@@ -1788,6 +1795,7 @@ export default {
       notes: 'Notes',
       enterEmail: 'Enter email',
       enterPassword: 'Enter password',
+      passwordCopied: 'Password copied to clipboard',
       enterUsername: 'Enter username (optional)',
       enterNotes: 'Enter notes (admin only)',
       notesHint: 'This note is only visible to administrators',
@@ -2047,6 +2055,7 @@ export default {
     groups: {
       title: 'Group Management',
       description: 'Manage API key groups and rate multipliers',
+      failedToSave: 'Failed to save',
       searchGroups: 'Search groups...',
       createGroup: 'Create Group',
       editGroup: 'Edit Group',
@@ -2909,6 +2918,7 @@ export default {
       revoke: 'Revoke',
       resetQuota: 'Reset Quota',
       resetQuotaTitle: 'Reset Usage Quota',
+      resetQuotaConfirmTitle: 'Reset Usage Quota',
       resetQuotaConfirm: "Reset the daily, weekly, and monthly usage quota for '{user}'? Usage will be zeroed and windows restarted from today.",
       quotaResetSuccess: 'Quota reset successfully',
       failedToResetQuota: 'Failed to reset quota',
@@ -2926,6 +2936,7 @@ export default {
       pleaseSelectUser: 'Please select a user',
       pleaseSelectGroup: 'Please select a group',
       validityDaysRequired: 'Please enter a valid number of days (at least 1)',
+      revokeConfirmTitle: 'Revoke Subscription',
       revokeConfirm:
         "Are you sure you want to revoke the subscription for '{user}'? This action cannot be undone.",
       guide: {
@@ -3437,6 +3448,8 @@ export default {
       supportsAllModels: '(supports all models)',
       requestModel: 'Request model',
       actualModel: 'Actual model',
+      fromModel: 'From model (request)',
+      toModel: 'To model (actual)',
       addMapping: 'Add Mapping',
       mappingExists: 'Mapping for {model} already exists',
       wildcardOnlyAtEnd: 'Wildcard * can only be at the end',
@@ -4668,8 +4681,14 @@ export default {
         '6h': 'Last 6 hours',
         '24h': 'Last 24 hours',
         '7d': 'Last 7 days',
-        '30d': 'Last 30 days'
+        '30d': 'Last 30 days',
+        custom: 'Custom range'
       },
+      customTimeRange: {
+        startTime: 'Start time',
+        endTime: 'End time'
+      },
+      result: 'Result:',
       openaiTokenStats: {
         title: 'OpenAI Token Request Stats',
         viewModeTopN: 'TopN',
@@ -5077,6 +5096,16 @@ export default {
         alertTitle: 'Alert Evaluator',
         groupAvailabilityTitle: 'Group Availability Monitor',
         evalIntervalSeconds: 'Evaluation Interval (seconds)',
+        metricThresholds: 'Metric thresholds',
+        metricThresholdsHint: 'Thresholds used by the alert evaluator to determine when to fire.',
+        slaMinPercent: 'SLA minimum (%)',
+        slaMinPercentHint: 'Fire when the rolling SLA drops below this percentage.',
+        ttftP99MaxMs: 'TTFT p99 max (ms)',
+        ttftP99MaxMsHint: 'Fire when time-to-first-token p99 exceeds this many milliseconds.',
+        requestErrorRateMaxPercent: 'Request error rate max (%)',
+        requestErrorRateMaxPercentHint: 'Fire when the request-error rate exceeds this percentage.',
+        upstreamErrorRateMaxPercent: 'Upstream error rate max (%)',
+        upstreamErrorRateMaxPercentHint: 'Fire when the upstream-error rate exceeds this percentage.',
         silencing: {
           title: 'Alert Silencing (Maintenance Mode)',
           enabled: 'Enable silencing',
