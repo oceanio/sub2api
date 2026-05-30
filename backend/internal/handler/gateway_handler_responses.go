@@ -226,7 +226,18 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		if channelMapping.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
+		// Fork: 调试日志采样命中则 wrap c.Writer 捕获响应体
+		debugLog := shouldDebugLog(h.debugLogService, c.Request.Context())
+		var respCap *responseCapture
+		if debugLog {
+			respCap = newResponseCapture(c.Writer, h.debugLogService.MaxBodyBytes())
+			c.Writer = respCap
+		}
 		result, err := h.gatewayService.ForwardAsResponses(c.Request.Context(), c, account, forwardBody, parsedReq)
+		// Fork: Forward 完成后立刻还原 c.Writer，避免后续错误兜底/failover 写入污染 capture buf
+		if respCap != nil {
+			c.Writer = respCap.ResponseWriter
+		}
 
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
@@ -289,6 +300,13 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				)
 			}
 		})
+		if debugLog {
+			var respBody []byte
+			if respCap != nil {
+				respBody = respCap.captured()
+			}
+			enqueueDebugLog(h.debugLogService, c.Request.Context(), result.RequestID, apiKey, reqModel, reqStream, service.DebugLogProtocolOpenAI, c.Request.Header, body, c.Writer.Header(), respBody)
+		}
 		return
 	}
 }
