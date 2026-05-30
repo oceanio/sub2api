@@ -573,7 +573,7 @@ type GatewayService struct {
 	userRepo              UserRepository
 	userSubRepo           UserSubscriptionRepository
 	userGroupRateRepo     UserGroupRateRepository
-	teamGroupRateRepo     TeamGroupRateRepository
+	teamGroupRateRepo     TeamGroupRateRepository // Fork: team-level rate overrides
 	cache                 GatewayCache
 	digestStore           *DigestSessionStore
 	cfg                   *config.Config
@@ -591,9 +591,9 @@ type GatewayService struct {
 	userGroupRateResolver *userGroupRateResolver
 	userGroupRateCache    *gocache.Cache
 	userGroupRateSF       singleflight.Group
-	teamGroupRateResolver *teamGroupRateResolver
-	teamGroupRateCache    *gocache.Cache
-	teamGroupRateSF       singleflight.Group
+	teamGroupRateResolver *teamGroupRateResolver // Fork
+	teamGroupRateCache    *gocache.Cache         // Fork
+	teamGroupRateSF       singleflight.Group     // Fork
 	modelsListCache       *gocache.Cache
 	modelsListCacheTTL    time.Duration
 	settingService        *SettingService
@@ -5374,7 +5374,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	var firstTokenMs *int
 	clientDisconnected := false
 	sawTerminalEvent := false
-	var linesReceived int
+	var linesReceived int // Fork: 区分「上游没发数据就断链」（可 failover）和「发了部分内容才断链」（直接断不计 failover）
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -7557,7 +7557,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 	needModelReplace := originalModel != mappedModel
 	clientDisconnected := false // 客户端断开标志，断开后继续读取上游以获取完整usage
 	sawTerminalEvent := false
-	var linesReceived int
+	var linesReceived int // Fork: 区分「上游没发数据就断链」（可 failover）和「发了部分内容才断链」
 
 	pendingEventLines := make([]string, 0, 4)
 
@@ -8253,7 +8253,7 @@ type postUsageBillingParams struct {
 	IsSubscriptionBill    bool
 	AccountRateMultiplier float64
 	APIKeyService         APIKeyQuotaUpdater
-	TeamMemberID          *int64 // snapshot.TeamMemberID, for sub_quota_used tracking
+	TeamMemberID          *int64 // Fork: snapshot.TeamMemberID, for sub_quota_used tracking
 	Platform              string // 来自 APIKey 关联 Group 的平台标识
 }
 

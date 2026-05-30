@@ -233,6 +233,7 @@ export interface PublicSettings {
   channel_monitor_default_interval_seconds: number
   available_channels_enabled: boolean
   affiliate_enabled: boolean
+  // Fork: 折扣显示 + 本币汇率
   display_discount_enabled?: boolean
   local_currency?: string
   usd_exchange_rate?: number

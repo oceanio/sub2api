@@ -477,7 +477,7 @@ const routes: RouteRecordRaw[] = [
       descriptionKey: 'admin.subscriptions.description'
     }
   },
-  // Team-feature routes live in router/team_routes.ts to keep this file's
+  // Fork: Team-feature routes live in router/team_routes.ts to keep this file's
   // team footprint to a single spread.
   ...teamRoutes,
   {

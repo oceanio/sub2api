@@ -489,7 +489,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
-				// 流式内容已写入客户端时，禁止 failover 以防止响应体腐化
+				// Fork: 流式内容已写入客户端时，禁止 failover 以防止响应体腐化
 				if c.Writer.Size() != writerSizeBeforeForward {
 					h.handleGeminiFailoverExhausted(c, failoverErr)
 					return

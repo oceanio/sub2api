@@ -25,7 +25,7 @@ func newGatewayRecordUsageServiceForTest(usageRepo UsageLogRepository, userRepo 
 		userRepo,
 		subRepo,
 		nil,
-		nil,
+		nil, // TeamGroupRateRepository (fork)
 		nil,
 		cfg,
 		nil,

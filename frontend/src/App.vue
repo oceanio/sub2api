@@ -59,7 +59,7 @@ watch(
       subscriptionStore.fetchActiveSubscriptions().catch((error) => {
         console.error('Failed to preload subscriptions:', error)
       })
-      // Check if user is a team_admin (silently — non-admins will get a 403)
+      // Fork: load team membership silently — AppHeader 切换团队余额显示需要
       teamStore.load().catch(() => {})
       subscriptionStore.startPolling()
 

@@ -24,7 +24,7 @@ export { channelMonitorUserAPI } from './channelMonitor'
 // Admin APIs
 export { adminAPI } from './admin'
 
-// Team management
+// Fork: Team management
 export { teamAPI, type Team, type TeamMember, type TeamBalanceLog } from './team'
 
 // Default export

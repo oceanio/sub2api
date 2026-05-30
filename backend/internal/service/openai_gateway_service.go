@@ -5710,6 +5710,9 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		multiplier = s.cfg.Default.RateMultiplier
 	}
 	if apiKey.GroupID != nil && apiKey.Group != nil {
+		// Fork: 三级倍率解析，优先级 user×group override > team×group override > group default。
+		// 旧实现只走 userGroupRateResolver.Resolve，team key 的 team×group override 不生效，
+		// 导致 admin 在 team_group_rate_multipliers 上设的 OpenAI 平台 group 折扣 silent 失效。
 		userResolver := s.userGroupRateResolver
 		if userResolver == nil {
 			userResolver = newUserGroupRateResolver(nil, nil, resolveUserGroupRateCacheTTL(s.cfg), nil, "service.openai_gateway")
