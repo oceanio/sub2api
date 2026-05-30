@@ -8349,6 +8349,16 @@ async function saveSettings() {
       available_channels_enabled: form.available_channels_enabled,
       // Affiliate (邀请返利) feature switch
       affiliate_enabled: form.affiliate_enabled,
+      // Fork: Request debug log
+      debug_request_log_enabled: form.debug_request_log_enabled,
+      debug_request_log_ttl_hours: clampInteger(form.debug_request_log_ttl_hours, 1, 720, 168),
+      debug_request_log_sample_rate: clampInteger(form.debug_request_log_sample_rate, 1, 100, 100),
+      debug_request_log_redact_headers: form.debug_request_log_redact_headers,
+      debug_request_log_body_limit_bytes: clampInteger(form.debug_request_log_body_limit_bytes, 0, 1048576, 1024),
+      // Fork: 折扣显示 + 本币汇率
+      display_discount_enabled: form.display_discount_enabled,
+      local_currency: form.local_currency === "HKD" ? "HKD" : "CNY",
+      usd_exchange_rate: Number(form.usd_exchange_rate) > 0 ? Number(form.usd_exchange_rate) : 7.2,
     };
 
     // 仅当 openai_fast_policy_settings 已成功从后端加载时才回写，
@@ -9384,6 +9394,18 @@ async function handleAffiliateConfirm() {
 function cancelAffiliateConfirm() {
   affiliateConfirmDialog.show = false;
   affiliateConfirmDialog.pending = null;
+}
+
+// Fork: clampInteger clamps a numeric input to [min,max] integer, returning
+// fallback when the value isn't a finite number. Used by debug_request_log_*
+// fields in saveSettings() to enforce backend-validated ranges.
+function clampInteger(value: unknown, min: number, max: number, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  const i = Math.trunc(n);
+  if (i < min) return min;
+  if (i > max) return max;
+  return i;
 }
 
 // debounceTimer wires a single timer slot to a callback with a delay,
