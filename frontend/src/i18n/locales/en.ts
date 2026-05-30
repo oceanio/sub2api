@@ -4812,6 +4812,7 @@ export default {
       errorDetails: {
         upstreamErrors: 'Upstream Errors',
         requestErrors: 'Request Errors',
+        businessLimited: 'Business Limited',
         unresolved: 'Unresolved',
         resolved: 'Resolved',
         viewErrors: 'Errors',

@@ -4963,6 +4963,7 @@ export default {
       errorDetails: {
         upstreamErrors: '上游错误',
         requestErrors: '请求错误',
+        businessLimited: '业务限制',
         unresolved: '未解决',
         resolved: '已解决',
         viewErrors: '错误',
