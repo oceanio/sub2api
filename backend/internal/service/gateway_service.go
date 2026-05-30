@@ -1898,9 +1898,6 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 						"session", shortSessionHash(sessionHash),
 					)
 					_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
-					// 已主动清除原绑定，后续 Layer 2 应允许重新绑定新账号；
-					// 不清零的话 Layer 2 的 sticky-preserve 条件会误判为 failover，导致 session 无法重新绑定。
-					stickyAccountID = 0
 				}
 
 				// 注意：不再检查 isAccountInGroup，因为 accountByID 已经从按分组过滤的
@@ -2061,7 +2058,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 
 	loadMap, err := s.concurrencyService.GetAccountsLoadBatch(ctx, accountLoads)
 	if err != nil {
-		if result, ok, legacyErr := s.tryAcquireByLegacyOrder(ctx, candidates, groupID, sessionHash, preferOAuth, stickyAccountID); legacyErr != nil {
+		if result, ok, legacyErr := s.tryAcquireByLegacyOrder(ctx, candidates, groupID, sessionHash, preferOAuth); legacyErr != nil {
 			return nil, legacyErr
 		} else if ok {
 			return result, nil
@@ -2099,9 +2096,9 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 				if !s.checkAndRegisterSession(ctx, selected.account, sessionHash) {
 					result.ReleaseFunc() // 释放槽位，继续尝试下一个账号
 				} else {
-					// 只在首次绑定（无已有粘性账号）或命中原粘性账号时才写入 session，
-					// 避免 failover 切换账号时覆盖掉原有绑定，导致高优先级账号恢复后无法切回。
-					if sessionHash != "" && s.cache != nil && (stickyAccountID == 0 || selected.account.ID == stickyAccountID) {
+					// 始终覆盖 session 绑定：failover 切到新账号后让后续请求继续命中新账号，
+					// 避免反复在原账号/新账号之间切换导致连接池/会话级 cache 频繁失效。
+					if sessionHash != "" && s.cache != nil {
 						_ = s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, selected.account.ID, stickySessionTTL)
 					}
 					return s.newSelectionResult(ctx, selected.account, true, result.ReleaseFunc, nil)
@@ -2137,7 +2134,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	return nil, ErrNoAvailableAccounts
 }
 
-func (s *GatewayService) tryAcquireByLegacyOrder(ctx context.Context, candidates []*Account, groupID *int64, sessionHash string, preferOAuth bool, stickyAccountID int64) (*AccountSelectionResult, bool, error) {
+func (s *GatewayService) tryAcquireByLegacyOrder(ctx context.Context, candidates []*Account, groupID *int64, sessionHash string, preferOAuth bool) (*AccountSelectionResult, bool, error) {
 	ordered := append([]*Account(nil), candidates...)
 	sortAccountsByPriorityAndLastUsed(ordered, preferOAuth)
 
@@ -2149,8 +2146,8 @@ func (s *GatewayService) tryAcquireByLegacyOrder(ctx context.Context, candidates
 				result.ReleaseFunc() // 释放槽位，继续尝试下一个账号
 				continue
 			}
-			// 只在首次绑定或命中原粘性账号时写入，避免 failover 时覆盖原有绑定。
-			if sessionHash != "" && s.cache != nil && (stickyAccountID == 0 || acc.ID == stickyAccountID) {
+			// 始终覆盖 session 绑定：见 SelectAccountWithLoadAwareness 同名注释。
+			if sessionHash != "" && s.cache != nil {
 				_ = s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, acc.ID, stickySessionTTL)
 			}
 			selection, err := s.newSelectionResult(ctx, acc, true, result.ReleaseFunc, nil)
