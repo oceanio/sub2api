@@ -11,7 +11,7 @@ interface Props {
   timeRange: string
   platform?: string
   groupId?: number | null
-  errorType: 'request' | 'upstream'
+  errorType: 'request' | 'upstream' | 'business_limited'
 }
 
 const props = defineProps<Props>()
@@ -37,7 +37,9 @@ const viewMode = ref<'errors' | 'excluded' | 'all'>('errors')
 
 
 const modalTitle = computed(() => {
-  return props.errorType === 'upstream' ? t('admin.ops.errorDetails.upstreamErrors') : t('admin.ops.errorDetails.requestErrors')
+  if (props.errorType === 'upstream') return t('admin.ops.errorDetails.upstreamErrors')
+  if (props.errorType === 'business_limited') return t('admin.ops.errorDetails.businessLimited')
+  return t('admin.ops.errorDetails.requestErrors')
 })
 
 const statusCodeSelectOptions = computed(() => {
@@ -111,6 +113,7 @@ async function fetchErrorLogs() {
     if (ownerVal) params.error_owner = ownerVal
 
 
+    // business_limited reuses the request-errors endpoint with view=excluded.
     const res = props.errorType === 'upstream'
       ? await opsAPI.listUpstreamErrors(params)
       : await opsAPI.listRequestErrors(params)
@@ -130,7 +133,7 @@ async function fetchErrorLogs() {
     statusCode.value = null
     phase.value = props.errorType === 'upstream' ? 'upstream' : ''
     errorOwner.value = ''
-    viewMode.value = 'errors'
+    viewMode.value = props.errorType === 'business_limited' ? 'excluded' : 'errors'
     page.value = 1
     fetchErrorLogs()
   }

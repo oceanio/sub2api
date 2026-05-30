@@ -200,7 +200,7 @@ import { resolvePrimaryResponseBody, resolveUpstreamPayload } from '../utils/err
 interface Props {
   show: boolean
   errorId: number | null
-  errorType?: 'request' | 'upstream'
+  errorType?: 'request' | 'upstream' | 'business_limited'
 }
 
 interface Emits {
@@ -216,12 +216,15 @@ const appStore = useAppStore()
 const loading = ref(false)
 const detail = ref<OpsErrorDetail | null>(null)
 
-const showUpstreamList = computed(() => props.errorType === 'request')
+const showUpstreamList = computed(() => props.errorType === 'request' || props.errorType === 'business_limited')
 
 const requestId = computed(() => detail.value?.request_id || detail.value?.client_request_id || '')
 
 const primaryResponseBody = computed(() => {
-  return resolvePrimaryResponseBody(detail.value, props.errorType)
+  // resolvePrimaryResponseBody only knows 'request' | 'upstream'; business_limited
+  // shares the request-side body shape.
+  const kind = props.errorType === 'upstream' ? 'upstream' : 'request'
+  return resolvePrimaryResponseBody(detail.value, kind)
 })
 
 
@@ -340,7 +343,7 @@ watch(
     if (typeof id === 'number' && id > 0) {
       expandedUpstreamDetailIds.value = new Set()
       fetchDetail(id)
-      if (props.errorType === 'request') {
+      if (props.errorType === 'request' || props.errorType === 'business_limited') {
         fetchCorrelatedUpstreamErrors(id)
       } else {
         correlatedUpstream.value = []

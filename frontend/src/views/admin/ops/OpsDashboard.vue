@@ -305,7 +305,7 @@ const applyRouteQueryToState = () => {
   const openErr = readQueryString(QUERY_KEYS.openErrorDetails)
   if (openErr === '1' || openErr === 'true') {
     const typ = readQueryString(QUERY_KEYS.errorType)
-    errorDetailsType.value = typ === 'upstream' ? 'upstream' : 'request'
+    errorDetailsType.value = typ === 'upstream' ? 'upstream' : typ === 'business_limited' ? 'business_limited' : 'request'
     showErrorDetails.value = true
   }
 }
@@ -366,7 +366,7 @@ const selectedErrorId = ref<number | null>(null)
 const showErrorModal = ref(false)
 
 const showErrorDetails = ref(false)
-const errorDetailsType = ref<'request' | 'upstream'>('request')
+const errorDetailsType = ref<'request' | 'upstream' | 'business_limited'>('request')
 
 const showRequestDetails = ref(false)
 const requestDetailsPreset = ref<OpsRequestDetailsPreset>({

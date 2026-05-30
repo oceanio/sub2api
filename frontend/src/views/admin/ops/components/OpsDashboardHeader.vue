@@ -37,7 +37,7 @@ interface Emits {
   (e: 'update:customTimeRange', startTime: string, endTime: string): void
   (e: 'refresh'): void
   (e: 'openRequestDetails', preset?: OpsRequestDetailsPreset): void
-  (e: 'openErrorDetails', kind: 'request' | 'upstream'): void
+  (e: 'openErrorDetails', kind: 'request' | 'upstream' | 'business_limited'): void
   (e: 'openSettings'): void
   (e: 'openAlertRules'): void
   (e: 'enterFullscreen'): void
@@ -212,7 +212,7 @@ function openDetails(preset?: OpsRequestDetailsPreset) {
   emit('openRequestDetails', preset)
 }
 
-function openErrorDetails(kind: 'request' | 'upstream') {
+function openErrorDetails(kind: 'request' | 'upstream' | 'business_limited') {
   emit('openErrorDetails', kind)
 }
 
@@ -406,6 +406,12 @@ const upstreamErrorRatePercent = computed(() => {
   if (typeof v !== 'number') return null
   return v * 100
 })
+
+const upstreamErrorTotal = computed(() =>
+  (overview.value?.upstream_error_count_excl_429_529 ?? 0)
+  + (overview.value?.upstream_429_count ?? 0)
+  + (overview.value?.upstream_529_count ?? 0)
+)
 
 const durationP99Ms = computed(() => overview.value?.duration?.p99_ms ?? null)
 const durationP95Ms = computed(() => overview.value?.duration?.p95_ms ?? null)
@@ -1384,9 +1390,22 @@ function handleToolbarRefresh() {
               <span class="text-[10px] font-bold uppercase text-gray-400">{{ t('admin.ops.requestErrors') }}</span>
               <HelpTooltip v-if="!props.fullscreen" :content="t('admin.ops.tooltips.errors')" />
             </div>
-            <button v-if="!props.fullscreen" class="text-[10px] font-bold text-blue-500 hover:underline" type="button" @click="openErrorDetails('request')">
-              {{ t('admin.ops.requestDetails.details') }}
-            </button>
+            <div v-if="!props.fullscreen" class="flex items-center gap-2">
+              <button
+                class="text-[10px] font-bold"
+                :class="(overview.error_count_sla ?? 0) > 0 ? 'text-blue-500 hover:underline cursor-pointer' : 'text-gray-400 cursor-not-allowed'"
+                type="button"
+                :disabled="(overview.error_count_sla ?? 0) === 0"
+                @click="openErrorDetails('request')"
+              >{{ t('admin.ops.requestDetails.details') }}</button>
+              <button
+                class="text-[10px] font-bold"
+                :class="(overview.business_limited_count ?? 0) > 0 ? 'text-blue-500 hover:underline cursor-pointer' : 'text-gray-400 cursor-not-allowed'"
+                type="button"
+                :disabled="(overview.business_limited_count ?? 0) === 0"
+                @click="openErrorDetails('business_limited')"
+              >{{ t('admin.ops.errorDetails.businessLimited') }}</button>
+            </div>
           </div>
           <div class="mt-2 text-3xl font-black" :class="getThresholdColorClass(getRequestErrorRateThresholdLevel(errorRatePercent))">
             {{ errorRatePercent == null ? '-' : `${errorRatePercent.toFixed(2)}%` }}
@@ -1410,9 +1429,14 @@ function handleToolbarRefresh() {
               <span class="text-[10px] font-bold uppercase text-gray-400">{{ t('admin.ops.upstreamErrors') }}</span>
               <HelpTooltip v-if="!props.fullscreen" :content="t('admin.ops.tooltips.upstreamErrors')" />
             </div>
-            <button v-if="!props.fullscreen" class="text-[10px] font-bold text-blue-500 hover:underline" type="button" @click="openErrorDetails('upstream')">
-              {{ t('admin.ops.requestDetails.details') }}
-            </button>
+            <button
+              v-if="!props.fullscreen"
+              class="text-[10px] font-bold"
+              :class="upstreamErrorTotal > 0 ? 'text-blue-500 hover:underline cursor-pointer' : 'text-gray-400 cursor-not-allowed'"
+              type="button"
+              :disabled="upstreamErrorTotal === 0"
+              @click="openErrorDetails('upstream')"
+            >{{ t('admin.ops.requestDetails.details') }}</button>
           </div>
           <div class="mt-2 text-3xl font-black" :class="getThresholdColorClass(getUpstreamErrorRateThresholdLevel(upstreamErrorRatePercent))">
             {{ upstreamErrorRatePercent == null ? '-' : `${upstreamErrorRatePercent.toFixed(2)}%` }}
