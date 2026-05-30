@@ -588,41 +588,44 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_EmptyModelSkipsMapping(t *tes
 	require.Equal(t, body, upstream.lastBody, "空模型名时请求体不应被修改")
 }
 
-func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokensUpstreamErrorFallsBackToLocal(t *testing.T) {
-	// count_tokens 是客户端预估 token 的轻量探测，任何上游错误（404/400/500
-	// 等）都不应影响账号状态、不应阻塞客户端。一律回退到本地 tiktoken 估算，
-	// 返回 200 + {input_tokens}。
+func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokens404PassthroughNotError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
-		name       string
-		statusCode int
-		respBody   string
+		name            string
+		statusCode      int
+		respBody        string
+		wantPassthrough bool
 	}{
 		{
-			name:       "404 endpoint not found",
-			statusCode: http.StatusNotFound,
-			respBody:   `{"error":{"message":"Not found: /v1/messages/count_tokens","type":"not_found_error"}}`,
+			name:            "404 endpoint not found passes through as 404",
+			statusCode:      http.StatusNotFound,
+			respBody:        `{"error":{"message":"Not found: /v1/messages/count_tokens","type":"not_found_error"}}`,
+			wantPassthrough: true,
 		},
 		{
-			name:       "404 generic not found",
-			statusCode: http.StatusNotFound,
-			respBody:   `{"error":{"message":"resource not found","type":"not_found_error"}}`,
+			name:            "404 generic not found does not passthrough",
+			statusCode:      http.StatusNotFound,
+			respBody:        `{"error":{"message":"resource not found","type":"not_found_error"}}`,
+			wantPassthrough: false,
 		},
 		{
-			name:       "400 Invalid URL",
-			statusCode: http.StatusBadRequest,
-			respBody:   `{"error":{"message":"Invalid URL (POST /v1/messages/count_tokens)","type":"invalid_request_error"}}`,
+			name:            "400 Invalid URL does not passthrough",
+			statusCode:      http.StatusBadRequest,
+			respBody:        `{"error":{"message":"Invalid URL (POST /v1/messages/count_tokens)","type":"invalid_request_error"}}`,
+			wantPassthrough: false,
 		},
 		{
-			name:       "400 model error",
-			statusCode: http.StatusBadRequest,
-			respBody:   `{"error":{"message":"model not found: claude-unknown","type":"invalid_request_error"}}`,
+			name:            "400 model error does not passthrough",
+			statusCode:      http.StatusBadRequest,
+			respBody:        `{"error":{"message":"model not found: claude-unknown","type":"invalid_request_error"}}`,
+			wantPassthrough: false,
 		},
 		{
-			name:       "500 internal error",
-			statusCode: http.StatusInternalServerError,
-			respBody:   `{"error":{"message":"internal error","type":"api_error"}}`,
+			name:            "500 internal error does not passthrough",
+			statusCode:      http.StatusInternalServerError,
+			respBody:        `{"error":{"message":"internal error","type":"api_error"}}`,
+			wantPassthrough: false,
 		},
 	}
 
@@ -667,14 +670,21 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokensUpstreamErrorFalls
 			}
 
 			err := svc.ForwardCountTokens(context.Background(), c, account, parsed)
-			require.NoError(t, err)
-			require.Equal(t, http.StatusOK, rec.Code)
 
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			tokens, ok := resp["input_tokens"].(float64)
-			require.True(t, ok, "expected input_tokens in response, got %v", resp)
-			require.Greater(t, int(tokens), 0, "input_tokens should be > 0")
+			if tt.wantPassthrough {
+				// 返回 nil（不记录为错误），HTTP 状态码 404 + Anthropic 错误体
+				require.NoError(t, err)
+				require.Equal(t, http.StatusNotFound, rec.Code)
+				var errResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.Equal(t, "error", errResp["type"])
+				errObj, ok := errResp["error"].(map[string]any)
+				require.True(t, ok)
+				require.Equal(t, "not_found_error", errObj["type"])
+			} else {
+				require.Error(t, err)
+				require.Equal(t, tt.statusCode, rec.Code)
+			}
 		})
 	}
 }

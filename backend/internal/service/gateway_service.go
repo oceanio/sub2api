@@ -20,7 +20,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -606,16 +605,6 @@ type GatewayService struct {
 	debugGatewayBodyFile  atomic.Pointer[os.File] // non-nil when SUB2API_DEBUG_GATEWAY_BODY is set
 	tlsFPProfileService   *TLSFingerprintProfileService
 	balanceNotifyService  *BalanceNotifyService
-
-	// countTokensSupportCache 记录每个上游账号是否支持 count_tokens 端点。
-	// 三态：未命中 = Unknown（需探测）；val.supported = true/false。
-	// TTL 内命中即直接分流：true → 走上游；false → 走本地估算。
-	// key=accountID(int64) val=*countTokensSupportEntry
-	countTokensSupportCache sync.Map
-	// countTokensProbeSF 把 Unknown 状态下并发请求合并到一次探测：第一个 caller
-	// 真正打上游并写缓存；其他 caller 阻塞等待缓存就绪后各自分流（各自的 body 各自算）。
-	countTokensProbeSF singleflight.Group
-
 	userPlatformQuotaRepo UserPlatformQuotaRepository
 }
 
@@ -9263,19 +9252,191 @@ func (s *GatewayService) isStickyAccountUpstreamRestricted(ctx context.Context, 
 }
 
 // ForwardCountTokens 转发 count_tokens 请求到上游 API
-// 特点：不记录使用量、仅支持非流式响应。
-// Fork: real orchestration (cache + singleflight + local fallback on errors)
-// lives in gateway_count_tokens_fallback.go so this file's diff vs upstream
-// stays focused on the validation + delegate.
+// 特点：不记录使用量、仅支持非流式响应
+//
+// Fork (plan B): count_tokens 上游错误一律透传给客户端，由客户端（如 Claude Code）
+// 自行回退本地估算。避免服务端用 tiktoken 估算导致与官方 tokenizer 结果不一致。
 func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context, account *Account, parsed *ParsedRequest) error {
 	if parsed == nil {
 		s.countTokensError(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
 		return fmt.Errorf("parse request: empty request")
 	}
-	return s.forwardCountTokensWithFallback(ctx, c, account, parsed)
+
+	if account != nil && account.IsAnthropicAPIKeyPassthroughEnabled() {
+		passthroughBody := parsed.Body
+		if reqModel := parsed.Model; reqModel != "" {
+			if mappedModel := account.GetMappedModel(reqModel); mappedModel != reqModel {
+				passthroughBody = s.replaceModelInBody(passthroughBody, mappedModel)
+				logger.LegacyPrintf("service.gateway", "CountTokens passthrough model mapping: %s -> %s (account: %s)", reqModel, mappedModel, account.Name)
+			}
+		}
+		return s.forwardCountTokensAnthropicAPIKeyPassthrough(ctx, c, account, passthroughBody)
+	}
+
+	// Bedrock 不支持 count_tokens 端点
+	if account != nil && account.IsBedrock() {
+		s.countTokensError(c, http.StatusNotFound, "not_found_error", "count_tokens endpoint is not supported for Bedrock")
+		return nil
+	}
+
+	body := parsed.Body
+	reqModel := parsed.Model
+
+	// Pre-filter: strip empty text blocks to prevent upstream 400.
+	body = StripEmptyTextBlocks(body)
+
+	isClaudeCodeCT := IsClaudeCodeClient(ctx) || isClaudeCodeClient(c.GetHeader("User-Agent"), parsed.MetadataUserID)
+	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCodeCT
+
+	if shouldMimicClaudeCode {
+		normalizeOpts := claudeOAuthNormalizeOptions{stripSystemCacheControl: true}
+		body, reqModel = normalizeClaudeOAuthRequestBody(body, reqModel, normalizeOpts)
+
+		body = s.rewriteMessageCacheControlIfEnabled(ctx, body)
+		if rw := buildToolNameRewriteFromBody(body); rw != nil {
+			body = applyToolNameRewriteToBody(body, rw)
+		} else {
+			body = applyToolsLastCacheBreakpoint(body)
+		}
+	}
+
+	// Antigravity 账户不支持 count_tokens，返回 404 让客户端 fallback 到本地估算。
+	if account.Platform == PlatformAntigravity {
+		s.countTokensError(c, http.StatusNotFound, "not_found_error", "count_tokens endpoint is not supported for this platform")
+		return nil
+	}
+
+	// 应用模型映射
+	if reqModel != "" {
+		mappedModel := reqModel
+		mappingSource := ""
+		if account.Type == AccountTypeAPIKey {
+			mappedModel = account.GetMappedModel(reqModel)
+			if mappedModel != reqModel {
+				mappingSource = "account"
+			}
+		}
+		if mappingSource == "" && account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {
+			normalized := claude.NormalizeModelID(reqModel)
+			if normalized != reqModel {
+				mappedModel = normalized
+				mappingSource = "prefix"
+			}
+		}
+		if mappedModel != reqModel {
+			body = s.replaceModelInBody(body, mappedModel)
+			reqModel = mappedModel
+			logger.LegacyPrintf("service.gateway", "CountTokens model mapping applied: %s -> %s (account: %s, source=%s)", parsed.Model, mappedModel, account.Name, mappingSource)
+		}
+	}
+
+	token, tokenType, err := s.GetAccessToken(ctx, account)
+	if err != nil {
+		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to get access token")
+		return err
+	}
+
+	upstreamReq, err := s.buildCountTokensRequest(ctx, c, account, body, token, tokenType, reqModel, shouldMimicClaudeCode)
+	if err != nil {
+		s.countTokensError(c, http.StatusInternalServerError, "api_error", "Failed to build request")
+		return err
+	}
+
+	proxyURL := ""
+	if account.ProxyID != nil && account.Proxy != nil {
+		if !account.IsCustomBaseURLEnabled() || account.GetCustomBaseURL() == "" {
+			proxyURL = account.Proxy.URL()
+		}
+	}
+
+	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	if err != nil {
+		setOpsUpstreamError(c, 0, sanitizeUpstreamErrorMessage(err.Error()), "")
+		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Request failed")
+		return fmt.Errorf("upstream request failed: %w", err)
+	}
+
+	countTokensTooLarge := func(c *gin.Context) {
+		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Upstream response too large")
+	}
+	respBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, countTokensTooLarge)
+	_ = resp.Body.Close()
+	if err != nil {
+		if !errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
+			s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to read response")
+		}
+		return err
+	}
+
+	// 检测 thinking block 签名错误（400）并重试一次（过滤 thinking blocks）
+	if resp.StatusCode == 400 && s.shouldRectifySignatureError(ctx, account, respBody) {
+		logger.LegacyPrintf("service.gateway", "Account %d: detected thinking block signature error on count_tokens, retrying with filtered thinking blocks", account.ID)
+
+		filteredBody := FilterThinkingBlocksForRetry(body)
+		retryReq, buildErr := s.buildCountTokensRequest(ctx, c, account, filteredBody, token, tokenType, reqModel, shouldMimicClaudeCode)
+		if buildErr == nil {
+			retryResp, retryErr := s.httpUpstream.DoWithTLS(retryReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+			if retryErr == nil {
+				resp = retryResp
+				respBody, err = ReadUpstreamResponseBody(resp.Body, s.cfg, c, countTokensTooLarge)
+				_ = resp.Body.Close()
+				if err != nil {
+					if !errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
+						s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to read response")
+					}
+					return err
+				}
+			}
+		}
+	}
+
+	if resp.StatusCode >= 400 {
+		// Fork (plan B): count_tokens 上游错误不标记账号状态，错误透传给客户端自行处理。
+		// 不调用 HandleUpstreamError，避免触发限流/封禁/自定义错误码（误标临时不可用）逻辑。
+		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
+		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
+		upstreamDetail := ""
+		if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+			maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
+			if maxBytes <= 0 {
+				maxBytes = 2048
+			}
+			upstreamDetail = truncateString(string(respBody), maxBytes)
+		}
+		setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
+
+		// 用 logger.L().Warn 显式 WARN 级别 —— 避免 LegacyPrintf 因消息含 "error"
+		// 关键字被路由到 ERROR (count_tokens 隔离后这不是真错误，不该污染 ERROR 流)。
+		if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+			logger.L().Warn("count_tokens upstream non-2xx (account state unchanged)",
+				zap.String("component", "service.gateway"),
+				zap.Int("status", resp.StatusCode),
+				zap.Int64("account_id", account.ID),
+				zap.String("platform", account.Platform),
+				zap.String("type", account.Type),
+				zap.String("body", truncateForLog(respBody, s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)),
+			)
+		}
+
+		errMsg := "Upstream request failed"
+		switch resp.StatusCode {
+		case 429:
+			errMsg = "Rate limit exceeded"
+		case 529:
+			errMsg = "Service overloaded"
+		}
+		s.countTokensError(c, resp.StatusCode, "upstream_error", errMsg)
+		if upstreamMsg == "" {
+			return fmt.Errorf("upstream error: %d", resp.StatusCode)
+		}
+		return fmt.Errorf("upstream error: %d message=%s", resp.StatusCode, upstreamMsg)
+	}
+
+	c.Data(resp.StatusCode, "application/json", respBody)
+	return nil
 }
 
-func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx context.Context, c *gin.Context, account *Account, body []byte, parsed *ParsedRequest) error {
+func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx context.Context, c *gin.Context, account *Account, body []byte) error {
 	token, tokenType, err := s.GetAccessToken(ctx, account)
 	if err != nil {
 		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to get access token")
@@ -9326,37 +9487,58 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 		return err
 	}
 
-	// count_tokens 是客户端预估 token 的轻量探测，任何上游错误都不应影响账号状态：
-	// - 不调用 HandleUpstreamError，避免触发限流/封禁/自定义错误码逻辑
-	// - 一律回退到本地 tiktoken 估算，返回 200，避免阻塞客户端工作流
-	// - 标记账号 No，TTL 内后续请求直接走本地估算
 	if resp.StatusCode >= 400 {
-		s.recordCountTokensSupport(account.ID, false)
-		upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
-		if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
-			logger.L().Warn("count_tokens passthrough upstream non-2xx (account state unchanged)",
-				zap.String("component", "service.gateway"),
-				zap.Int("status", resp.StatusCode),
-				zap.Int64("account_id", account.ID),
-				zap.String("platform", account.Platform),
-				zap.String("body", truncateForLog(respBody, s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)),
-			)
+		// Fork (plan B): count_tokens 上游错误不标记账号状态，错误透传给客户端自行处理。
+		// 不调用 HandleUpstreamError，避免触发限流/封禁/自定义错误码（误标临时不可用）逻辑。
+		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
+		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
+
+		// 中转站不支持 count_tokens 端点时（404），返回 404 让客户端 fallback 到本地估算。
+		// 仅在错误消息明确指向 count_tokens endpoint 不存在时生效，避免误吞其他 404（如错误 base_url）。
+		if isCountTokensUnsupported404(resp.StatusCode, respBody) {
+			logger.LegacyPrintf("service.gateway",
+				"[count_tokens] Upstream does not support count_tokens (404), returning 404: account=%d name=%s msg=%s",
+				account.ID, account.Name, truncateString(upstreamMsg, 512))
+			s.countTokensError(c, http.StatusNotFound, "not_found_error", "count_tokens endpoint is not supported by upstream")
+			return nil
 		}
-		inputTokens := estimateInputTokens(parsed)
-		logger.L().Warn("count_tokens passthrough fallback to local estimation",
-			zap.String("component", "service.gateway"),
-			zap.Int("upstream_status", resp.StatusCode),
-			zap.Int("input_tokens", inputTokens),
-			zap.Int64("account_id", account.ID),
-			zap.String("account_name", account.Name),
-			zap.String("upstream_msg", truncateString(upstreamMsg, 256)),
-		)
-		c.JSON(http.StatusOK, gin.H{"input_tokens": inputTokens})
-		return nil
+
+		upstreamDetail := ""
+		if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+			maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
+			if maxBytes <= 0 {
+				maxBytes = 2048
+			}
+			upstreamDetail = truncateString(string(respBody), maxBytes)
+		}
+		setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
+		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			Platform:           account.Platform,
+			AccountID:          account.ID,
+			AccountName:        account.Name,
+			UpstreamStatusCode: resp.StatusCode,
+			UpstreamRequestID:  resp.Header.Get("x-request-id"),
+			UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
+			Passthrough:        true,
+			Kind:               "http_error",
+			Message:            upstreamMsg,
+			Detail:             upstreamDetail,
+		})
+
+		errMsg := "Upstream request failed"
+		switch resp.StatusCode {
+		case 429:
+			errMsg = "Rate limit exceeded"
+		case 529:
+			errMsg = "Service overloaded"
+		}
+		s.countTokensError(c, resp.StatusCode, "upstream_error", errMsg)
+		if upstreamMsg == "" {
+			return fmt.Errorf("upstream error: %d", resp.StatusCode)
+		}
+		return fmt.Errorf("upstream error: %d message=%s", resp.StatusCode, upstreamMsg)
 	}
 
-	// 透传成功响应；标记账号 Yes。
-	s.recordCountTokensSupport(account.ID, true)
 	writeAnthropicPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
 	if contentType == "" {

@@ -1321,11 +1321,15 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		}
 
 		// 错误策略优先：匹配则跳过重试直接处理。
-		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp); matched {
-			resp = rebuilt
-			break
-		} else {
-			resp = rebuilt
+		// Fork (plan B): countTokens 是客户端预估 token 的轻量探测，跳过 CheckErrorPolicy：
+		// 它在非自定义错误码分支会调用 tryTempUnschedulable 标记账号临时不可调度。
+		if action != "countTokens" {
+			if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp); matched {
+				resp = rebuilt
+				break
+			} else {
+				resp = rebuilt
+			}
 		}
 
 		if resp.StatusCode >= 400 && s.shouldRetryGeminiUpstreamError(account, resp.StatusCode) {
