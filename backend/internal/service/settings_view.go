@@ -470,10 +470,6 @@ type RateLimit429CooldownSettings struct {
 	Enabled bool `json:"enabled"`
 	// CooldownSeconds 默认回避时长（秒）
 	CooldownSeconds int `json:"cooldown_seconds"`
-	// PassthroughToClient 池模式专用：上游 429 在同账号重试用尽后直接透传给客户端，
-	// 不切换账号（账号状态保持不变，下次请求仍会选这个池）。
-	// 仅当 account.pool_mode=true 时生效；非池模式忽略此开关。
-	PassthroughToClient bool `json:"passthrough_to_client"`
 }
 
 // DefaultOverloadCooldownSettings 返回默认的过载冷却配置（启用，10分钟）

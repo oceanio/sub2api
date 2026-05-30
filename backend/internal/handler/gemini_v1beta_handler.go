@@ -503,11 +503,6 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 					return
 				case FailoverCanceled:
 					return
-				case FailoverPassthrough:
-					handleFailoverPassthrough(c, fs.LastFailoverErr, func() {
-						h.handleGeminiFailoverExhausted(c, fs.LastFailoverErr)
-					})
-					return
 				}
 			}
 			// ForwardNative already wrote the response

@@ -16,8 +16,7 @@ import (
 
 // mockTempUnscheduler 记录 TempUnscheduleRetryableError 的调用信息。
 type mockTempUnscheduler struct {
-	calls               []tempUnscheduleCall
-	pool429Passthrough  bool
+	calls []tempUnscheduleCall
 }
 
 type tempUnscheduleCall struct {
@@ -27,10 +26,6 @@ type tempUnscheduleCall struct {
 
 func (m *mockTempUnscheduler) TempUnscheduleRetryableError(_ context.Context, accountID int64, failoverErr *service.UpstreamFailoverError) {
 	m.calls = append(m.calls, tempUnscheduleCall{accountID: accountID, failoverErr: failoverErr})
-}
-
-func (m *mockTempUnscheduler) IsPool429PassthroughEnabled(_ context.Context) bool {
-	return m.pool429Passthrough
 }
 
 // ---------------------------------------------------------------------------

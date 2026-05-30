@@ -274,11 +274,6 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 					return
 				case FailoverCanceled:
 					return
-				case FailoverPassthrough:
-					handleFailoverPassthrough(c, fs.LastFailoverErr, func() {
-						h.handleCCFailoverExhausted(c, fs.LastFailoverErr, streamStarted)
-					})
-					return
 				}
 			}
 			h.ensureForwardErrorResponse(c, streamStarted)

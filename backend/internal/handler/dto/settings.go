@@ -349,9 +349,8 @@ type OverloadCooldownSettings struct {
 
 // RateLimit429CooldownSettings 429默认回避配置 DTO
 type RateLimit429CooldownSettings struct {
-	Enabled             bool `json:"enabled"`
-	CooldownSeconds     int  `json:"cooldown_seconds"`
-	PassthroughToClient bool `json:"passthrough_to_client"`
+	Enabled         bool `json:"enabled"`
+	CooldownSeconds int  `json:"cooldown_seconds"`
 }
 
 // StreamTimeoutSettings 流超时处理配置 DTO

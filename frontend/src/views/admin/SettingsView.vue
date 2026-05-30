@@ -371,18 +371,6 @@
                   </div>
                 </div>
 
-                <div class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700">
-                  <div>
-                    <label class="font-medium text-gray-900 dark:text-white">{{
-                      t("admin.settings.rateLimit429Cooldown.passthroughToClient")
-                    }}</label>
-                    <p class="text-sm text-gray-500 dark:text-gray-400">
-                      {{ t("admin.settings.rateLimit429Cooldown.passthroughToClientHint") }}
-                    </p>
-                  </div>
-                  <Toggle v-model="rateLimit429CooldownForm.passthrough_to_client" />
-                </div>
-
                 <div
                   class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
                 >
@@ -6870,7 +6858,6 @@ const rateLimit429CooldownSaving = ref(false);
 const rateLimit429CooldownForm = reactive({
   enabled: true,
   cooldown_seconds: 5,
-  passthrough_to_client: false,
 });
 
 // Stream Timeout 状态
@@ -8658,7 +8645,6 @@ async function saveRateLimit429CooldownSettings() {
     const updated = await adminAPI.settings.updateRateLimit429CooldownSettings({
       enabled: rateLimit429CooldownForm.enabled,
       cooldown_seconds: rateLimit429CooldownForm.cooldown_seconds,
-      passthrough_to_client: rateLimit429CooldownForm.passthrough_to_client,
     });
     Object.assign(rateLimit429CooldownForm, updated);
     appStore.showSuccess(t("admin.settings.rateLimit429Cooldown.saved"));

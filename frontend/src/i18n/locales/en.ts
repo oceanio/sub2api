@@ -6228,8 +6228,6 @@ export default {
         enabledHint: 'Pause account scheduling when a 429 has no reset time, then auto-recover after cooldown',
         cooldownSeconds: 'Cooldown Duration (seconds)',
         cooldownSecondsHint: 'Default cooldown duration (1-7200 seconds); explicit upstream reset times still take precedence',
-        passthroughToClient: 'Pool mode 429 passthrough',
-        passthroughToClientHint: 'Pool-mode accounts only: after same-account retries are exhausted, do not switch accounts — pass the 429 directly to the client for it to back off. Account state is unchanged.',
         saved: '429 default cooldown settings saved',
         saveFailed: 'Failed to save 429 default cooldown settings'
       },

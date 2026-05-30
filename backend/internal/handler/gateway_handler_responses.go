@@ -249,11 +249,6 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 					return
 				case FailoverCanceled:
 					return
-				case FailoverPassthrough:
-					handleFailoverPassthrough(c, fs.LastFailoverErr, func() {
-						h.handleResponsesFailoverExhausted(c, fs.LastFailoverErr, streamStarted)
-					})
-					return
 				}
 			}
 			h.ensureForwardErrorResponse(c, streamStarted)

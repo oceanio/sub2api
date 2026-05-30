@@ -14,9 +14,6 @@ import (
 // GatewayService 隐式实现此接口。
 type TempUnscheduler interface {
 	TempUnscheduleRetryableError(ctx context.Context, accountID int64, failoverErr *service.UpstreamFailoverError)
-	// IsPool429PassthroughEnabled 池模式 429 透传开关。开启时，池模式同账号重试用尽后
-	// 不切换账号，直接把上游 429 响应透传给客户端（由客户端实施 backoff）。
-	IsPool429PassthroughEnabled(ctx context.Context) bool
 }
 
 // FailoverAction 表示 failover 错误处理后的下一步动作
@@ -29,9 +26,6 @@ const (
 	FailoverExhausted
 	// FailoverCanceled context 已取消（调用方应直接 return）
 	FailoverCanceled
-	// FailoverPassthrough 池模式 429 透传：调用方应把上游响应直接返回给客户端，不切换账号。
-	// LastFailoverErr.StatusCode/ResponseBody 携带上游响应。
-	FailoverPassthrough
 )
 
 const (
@@ -100,18 +94,6 @@ func (s *FailoverState) HandleFailoverError(
 	// 同账号重试用尽，执行临时封禁
 	if failoverErr.RetryableOnSameAccount {
 		gatewayService.TempUnscheduleRetryableError(ctx, accountID, failoverErr)
-	}
-
-	// 池模式 429 透传：同账号重试用尽且开关开启时，直接把上游 429 响应返回给客户端，
-	// 不切换账号。账号状态保持不变（HandleUpstreamError 早就因为 pool_mode 跳过）。
-	if failoverErr.RetryableOnSameAccount && failoverErr.StatusCode == http.StatusTooManyRequests {
-		if gatewayService.IsPool429PassthroughEnabled(ctx) {
-			logger.FromContext(ctx).Info("gateway.pool_429_passthrough",
-				zap.Int64("account_id", accountID),
-				zap.Int("same_account_retry_count", s.SameAccountRetryCount[accountID]),
-			)
-			return FailoverPassthrough
-		}
 	}
 
 	// 加入失败列表
