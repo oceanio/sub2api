@@ -1,0 +1,24 @@
+<svg width="1024" height="1024" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">matrixrouter teal mark</title>
+  <desc id="desc">A minimal teal and white matrix routing mark for matrixrouter.</desc>
+  <defs>
+    <linearGradient id="matrixrouterTeal" x1="24" y1="18" x2="156" y2="164" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#18B8AB"/>
+      <stop offset="1" stop-color="#0B8F86"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="180" height="180" rx="28" fill="url(#matrixrouterTeal)"/>
+  <g fill="white">
+    <circle cx="46" cy="46" r="7"/>
+    <circle cx="90" cy="46" r="7"/>
+    <circle cx="134" cy="46" r="7"/>
+    <circle cx="46" cy="90" r="7"/>
+    <circle cx="90" cy="90" r="7"/>
+    <circle cx="134" cy="90" r="7"/>
+    <circle cx="46" cy="134" r="7"/>
+    <circle cx="90" cy="134" r="7"/>
+    <circle cx="134" cy="134" r="7"/>
+  </g>
+  <path d="M46 134H87.5C102.1 134 114 122.1 114 107.5V90C114 75.6 125.6 64 140 64H148" stroke="white" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M134 50L153 64L134 78" stroke="white" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
