@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv, Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import checker from 'vite-plugin-checker'
+import { compression } from 'vite-plugin-compression2'
 import { resolve } from 'path'
 
 /**
@@ -46,7 +47,14 @@ export default defineConfig(({ mode }) => {
       checker({
         vueTsc: true
       }),
-      injectPublicSettings(backendUrl)
+      injectPublicSettings(backendUrl),
+      // Fork: 预压缩——构建期生成同名 .br 和 .gz；后端按 Accept-Encoding 选用，
+      // 避免运行时 CPU 压缩开销。配合 backend/internal/web/embed_precompressed_fork.go。
+      compression({
+        algorithms: ['brotliCompress', 'gzip'],
+        exclude: [/\.(br|gz)$/],
+        threshold: 1024
+      })
     ],
   resolve: {
     alias: {

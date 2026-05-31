@@ -117,6 +117,12 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 			return
 		}
 
+		// Fork: 优先尝试预压缩（.br/.gz）+ Cache-Control；未命中再回退原 fileServer。
+		// 实现见 embed_precompressed_fork.go。
+		if s.tryServePrecompressed(c, cleanPath) {
+			return
+		}
+
 		// Embedded static asset.
 		if s.fileExists(cleanPath) {
 			s.fileServer.ServeHTTP(c.Writer, c.Request)
