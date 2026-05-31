@@ -273,6 +273,37 @@ const resetRuntimeConfig = async () => {
   }
 }
 
+const exporting = ref(false)
+const exportCurrentFilter = async () => {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    // 复用 buildQuery，但去掉 page/page_size——导出按筛选条件走服务端 limit。
+    const query = buildQuery()
+    delete query.page
+    delete query.page_size
+    const res = await opsAPI.exportSystemLogs(query)
+    const url = window.URL.createObjectURL(res.blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `ops-system-logs-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+    if (res.truncated) {
+      appStore.showWarning(`已导出最新 5 万条（命中筛选 ${res.total} 条已截断），请收窄筛选条件再导出剩余部分`)
+    } else {
+      appStore.showSuccess(`已导出 ${res.total} 条系统日志`)
+    }
+  } catch (err: any) {
+    console.error('[OpsSystemLogTable] Failed to export logs', err)
+    appStore.showError(err?.response?.data?.detail || '导出系统日志失败')
+  } finally {
+    exporting.value = false
+  }
+}
+
 const cleanupCurrentFilter = async () => {
   const ok = window.confirm('确认按当前筛选条件清理系统日志？该操作不可撤销。')
   if (!ok) return
@@ -477,6 +508,9 @@ onMounted(async () => {
     <div class="mb-3 flex flex-wrap gap-2">
       <button type="button" class="btn btn-primary btn-sm" @click="applyFilters">查询</button>
       <button type="button" class="btn btn-secondary btn-sm" @click="resetFilters">重置</button>
+      <button type="button" class="btn btn-secondary btn-sm" :disabled="exporting" @click="exportCurrentFilter">
+        {{ exporting ? '导出中...' : '按当前筛选导出 CSV' }}
+      </button>
       <button type="button" class="btn btn-danger btn-sm" @click="cleanupCurrentFilter">按当前筛选清理</button>
       <button type="button" class="btn btn-secondary btn-sm" @click="fetchHealth">刷新健康指标</button>
     </div>

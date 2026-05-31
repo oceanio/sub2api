@@ -55,6 +55,10 @@ func (m *opsRepoMock) ListSystemLogs(ctx context.Context, filter *OpsSystemLogFi
 	return &OpsSystemLogList{Logs: []*OpsSystemLog{}, Total: 0, Page: 1, PageSize: 50}, nil
 }
 
+func (m *opsRepoMock) ListSystemLogsForExport(_ context.Context, _ *OpsSystemLogFilter, _ int) ([]*OpsSystemLog, int, error) {
+	return []*OpsSystemLog{}, 0, nil
+}
+
 func (m *opsRepoMock) DeleteSystemLogs(ctx context.Context, filter *OpsSystemLogCleanupFilter) (int64, error) {
 	if m.DeleteSystemLogsFn != nil {
 		return m.DeleteSystemLogsFn(ctx, filter)

@@ -13,6 +13,8 @@ type OpsRepository interface {
 	ListRequestDetails(ctx context.Context, filter *OpsRequestDetailFilter) ([]*OpsRequestDetail, int64, error)
 	BatchInsertSystemLogs(ctx context.Context, inputs []*OpsInsertSystemLogInput) (int64, error)
 	ListSystemLogs(ctx context.Context, filter *OpsSystemLogFilter) (*OpsSystemLogList, error)
+	// Fork: 不分页直取最近 limit 条 + 命中总数，用于 CSV 导出。
+	ListSystemLogsForExport(ctx context.Context, filter *OpsSystemLogFilter, limit int) ([]*OpsSystemLog, int, error)
 	DeleteSystemLogs(ctx context.Context, filter *OpsSystemLogCleanupFilter) (int64, error)
 	InsertSystemLogCleanupAudit(ctx context.Context, input *OpsSystemLogCleanupAudit) error
 

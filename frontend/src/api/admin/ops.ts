@@ -1258,6 +1258,28 @@ export async function getSystemLogSinkHealth(): Promise<OpsSystemLogSinkHealth> 
   return data
 }
 
+// Fork: 系统日志 CSV 导出 —— 复用 list 的筛选参数，额外接受 limit；
+// 服务端硬上限 OpsSystemLogExportMaxRows (后端 const 50000)；超出会截断并通过响应头提示。
+export interface OpsSystemLogExportResult {
+  blob: Blob
+  total: number
+  truncated: boolean
+}
+
+export async function exportSystemLogs(params: OpsSystemLogQuery & { limit?: number }): Promise<OpsSystemLogExportResult> {
+  const response = await apiClient.get('/admin/ops/system-logs/export', {
+    params,
+    responseType: 'blob'
+  })
+  const totalRaw = response.headers?.['x-export-total']
+  const truncatedRaw = response.headers?.['x-export-truncated']
+  return {
+    blob: response.data,
+    total: Number.parseInt(String(totalRaw ?? '0'), 10) || 0,
+    truncated: String(truncatedRaw ?? '').toLowerCase() === 'true'
+  }
+}
+
 // Advanced settings (DB-backed)
 export async function getAdvancedSettings(): Promise<OpsAdvancedSettings> {
   const { data } = await apiClient.get<OpsAdvancedSettings>('/admin/ops/advanced-settings')
@@ -1330,7 +1352,8 @@ export const opsAPI = {
   updateMetricThresholds,
   listSystemLogs,
   cleanupSystemLogs,
-  getSystemLogSinkHealth
+  getSystemLogSinkHealth,
+  exportSystemLogs
 }
 
 export default opsAPI
