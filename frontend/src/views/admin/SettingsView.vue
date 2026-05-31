@@ -6604,11 +6604,11 @@
           <BackupSettings />
         </div>
 
-        <!-- Fork: Debug Log settings card -->
-        <SettingsDebugLogSection :form="form" />
-
-        <!-- Fork: 折扣显示与汇率卡片 -->
-        <SettingsDiscountCurrencySection :form="form" />
+        <!-- Fork: Debug Log + 折扣显示与汇率，限定到 features tab（之前漏 v-show，导致每个 tab 都重复显示） -->
+        <div v-show="activeTab === 'features'" class="space-y-6">
+          <SettingsDebugLogSection :form="form" />
+          <SettingsDiscountCurrencySection :form="form" />
+        </div>
 
         <!-- Save Button -->
         <div v-show="activeTab !== 'backup'" class="flex justify-end">
