@@ -378,6 +378,10 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 
 	state := apicompat.NewAnthropicEventToResponsesState()
 	state.Model = originalModel
+	// Fork: back-fill the terminal events' content/output that the upstream
+	// converter leaves empty, so Responses clients (e.g. Codex) that read
+	// response.completed.output as authoritative don't render an empty message.
+	outputAgg := apicompat.NewResponsesOutputAggregator()
 	var usage ClaudeUsage
 	var firstTokenMs *int
 	firstChunk := true
@@ -420,7 +424,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 		}
 
 		// Convert to Responses events
-		events := apicompat.AnthropicEventToResponsesEvents(event, state)
+		events := outputAgg.Patch(apicompat.AnthropicEventToResponsesEvents(event, state))
 		for _, evt := range events {
 			sse, err := apicompat.ResponsesEventToSSE(evt)
 			if err != nil {
@@ -445,7 +449,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	}
 
 	finalizeStream := func() (*ForwardResult, error) {
-		if finalEvents := apicompat.FinalizeAnthropicResponsesStream(state); len(finalEvents) > 0 {
+		if finalEvents := outputAgg.Patch(apicompat.FinalizeAnthropicResponsesStream(state)); len(finalEvents) > 0 {
 			for _, evt := range finalEvents {
 				sse, err := apicompat.ResponsesEventToSSE(evt)
 				if err != nil {
