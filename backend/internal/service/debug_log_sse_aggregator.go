@@ -28,7 +28,13 @@ func AggregateStream(protocol DebugLogProtocol, raw []byte) ([]byte, error) {
 	case DebugLogProtocolAnthropic:
 		return aggregateWith(raw, newAnthropicAggregator())
 	case DebugLogProtocolOpenAI:
-		return aggregateWith(raw, newOpenAIAggregator())
+		// The OpenAI protocol covers two distinct streaming wire formats:
+		// Chat Completions (chat.completion.chunk) and the Responses API
+		// (response.* typed events, e.g. the /v1/responses entry). Pick the
+		// right sub-aggregator from the first event so a Responses stream isn't
+		// fed to the chat aggregator, which would yield an empty
+		// {"choices":[],"object":"chat.completion"}.
+		return aggregateWith(raw, newOpenAIDispatchAggregator())
 	}
 	return nil, ErrSSEAggregationUnsupported
 }
@@ -321,6 +327,231 @@ func (a *openAIAggregator) finalize() ([]byte, error) {
 	}
 	a.completion["choices"] = out
 	return sonic.Marshal(a.completion)
+}
+
+// ===== OpenAI dispatch: Chat Completions vs Responses API =====
+//
+// 一个 OpenAI 流可能是 chat.completion.chunk（Chat Completions），也可能是
+// response.* 事件（Responses API，如 /v1/responses 入口）。两者结构完全不同，
+// 用错聚合器会得到空内容。dispatcher 从第一个事件判别后固定委托给对应聚合器。
+
+type openAIDispatchAggregator struct {
+	delegate sseAggregator
+}
+
+func newOpenAIDispatchAggregator() *openAIDispatchAggregator {
+	return &openAIDispatchAggregator{}
+}
+
+func (d *openAIDispatchAggregator) feed(evt sseEvent) {
+	if d.delegate == nil {
+		d.delegate = pickOpenAIAggregator(evt)
+	}
+	d.delegate.feed(evt)
+}
+
+func (d *openAIDispatchAggregator) finalize() ([]byte, error) {
+	if d.delegate == nil {
+		return nil, errors.New("openai sse: no events received")
+	}
+	return d.delegate.finalize()
+}
+
+// pickOpenAIAggregator 判别首个事件属于 Responses API 还是 Chat Completions。
+// Responses 事件类型恒为 "response.*"（事件名或 data.type），其余按 Chat
+// Completions 处理。
+func pickOpenAIAggregator(evt sseEvent) sseAggregator {
+	if strings.HasPrefix(evt.name, "response.") {
+		return newResponsesAggregator()
+	}
+	var probe map[string]any
+	if sonic.Unmarshal(evt.data, &probe) == nil {
+		if t, _ := probe["type"].(string); strings.HasPrefix(t, "response.") {
+			return newResponsesAggregator()
+		}
+		if obj, _ := probe["object"].(string); obj == "response" {
+			return newResponsesAggregator()
+		}
+	}
+	return newOpenAIAggregator()
+}
+
+// ===== Responses API aggregator =====
+//
+// 重建 Responses API 的最终 response 对象。终止事件（response.completed /
+// incomplete / failed）的 response 字段本身就携带完整 output，但流可能在
+// bodyLimit 处被截断而缺失终止事件，因此同时从增量事件累积 output：
+//   - response.created / in_progress           → response 信封（id/model/status…）
+//   - response.output_item.added               → 建立 output item 骨架
+//   - response.output_text.delta               → 累积 message 文本
+//   - response.function_call_arguments.delta   → 累积 function_call 参数
+//   - response.reasoning_summary_text.delta    → 累积 reasoning 摘要
+//   - response.output_item.done                → 用权威 item 覆盖（含完整 content）
+//   - response.completed / incomplete / failed → 更新信封（status/usage…）
+
+type responsesAggregator struct {
+	envelope map[string]any         // response 信封，取自 created；terminal 时合并 status/usage
+	items    map[int]map[string]any // 按 output_index 累积的 output item
+}
+
+func newResponsesAggregator() *responsesAggregator {
+	return &responsesAggregator{items: map[int]map[string]any{}}
+}
+
+func (a *responsesAggregator) feed(evt sseEvent) {
+	if bytes.Equal(bytes.TrimSpace(evt.data), []byte("[DONE]")) {
+		return
+	}
+	var obj map[string]any
+	if err := sonic.Unmarshal(evt.data, &obj); err != nil {
+		return
+	}
+	t, _ := obj["type"].(string)
+	if t == "" {
+		t = evt.name
+	}
+	switch t {
+	case "response.created", "response.in_progress":
+		if resp, ok := obj["response"].(map[string]any); ok && a.envelope == nil {
+			a.envelope = cloneMap(resp)
+		}
+	case "response.completed", "response.incomplete", "response.failed", "response.done":
+		if resp, ok := obj["response"].(map[string]any); ok {
+			a.mergeEnvelope(resp)
+		}
+	case "response.output_item.added":
+		idx, ok := indexOfAny(obj["output_index"])
+		if !ok {
+			return
+		}
+		if item, ok := obj["item"].(map[string]any); ok {
+			a.items[idx] = cloneMap(item)
+		}
+	case "response.output_item.done":
+		idx, ok := indexOfAny(obj["output_index"])
+		if !ok {
+			return
+		}
+		if item, ok := obj["item"].(map[string]any); ok {
+			// 权威 item，覆盖累积值
+			a.items[idx] = cloneMap(item)
+		}
+	case "response.output_text.delta":
+		a.appendText(obj)
+	case "response.function_call_arguments.delta":
+		idx, ok := indexOfAny(obj["output_index"])
+		if !ok {
+			return
+		}
+		item := a.ensureItem(idx)
+		s, _ := obj["delta"].(string)
+		cur, _ := item["arguments"].(string)
+		item["arguments"] = cur + s
+	case "response.reasoning_summary_text.delta":
+		idx, ok := indexOfAny(obj["output_index"])
+		if !ok {
+			return
+		}
+		item := a.ensureItem(idx)
+		s, _ := obj["delta"].(string)
+		a.appendSummaryText(item, s)
+	}
+}
+
+// appendText 把 output_text.delta 累积到对应 output item 的 content 文本块。
+func (a *responsesAggregator) appendText(obj map[string]any) {
+	idx, ok := indexOfAny(obj["output_index"])
+	if !ok {
+		return
+	}
+	cIdx, ok := indexOfAny(obj["content_index"])
+	if !ok {
+		cIdx = 0
+	}
+	s, _ := obj["delta"].(string)
+	item := a.ensureItem(idx)
+	if item["type"] == nil {
+		item["type"] = "message"
+	}
+	content, _ := item["content"].([]any)
+	for len(content) <= cIdx {
+		content = append(content, map[string]any{"type": "output_text", "text": ""})
+	}
+	part, _ := content[cIdx].(map[string]any)
+	if part == nil {
+		part = map[string]any{"type": "output_text", "text": ""}
+		content[cIdx] = part
+	}
+	cur, _ := part["text"].(string)
+	part["text"] = cur + s
+	item["content"] = content
+}
+
+func (a *responsesAggregator) appendSummaryText(item map[string]any, s string) {
+	summary, _ := item["summary"].([]any)
+	if len(summary) == 0 {
+		summary = []any{map[string]any{"type": "summary_text", "text": ""}}
+	}
+	part, _ := summary[0].(map[string]any)
+	if part == nil {
+		part = map[string]any{"type": "summary_text", "text": ""}
+		summary[0] = part
+	}
+	cur, _ := part["text"].(string)
+	part["text"] = cur + s
+	item["summary"] = summary
+}
+
+func (a *responsesAggregator) ensureItem(idx int) map[string]any {
+	if a.items[idx] == nil {
+		a.items[idx] = map[string]any{}
+	}
+	return a.items[idx]
+}
+
+// mergeEnvelope 合并终止事件里的完整 response 对象。它通常已含完整 output，
+// 故直接整体替换信封；若反而缺 output，则在 finalize 用累积 items 兜底。
+func (a *responsesAggregator) mergeEnvelope(resp map[string]any) {
+	if a.envelope == nil {
+		a.envelope = cloneMap(resp)
+		return
+	}
+	for k, v := range resp {
+		a.envelope[k] = v
+	}
+}
+
+func (a *responsesAggregator) finalize() ([]byte, error) {
+	if a.envelope == nil && len(a.items) == 0 {
+		return nil, errors.New("responses sse: no events received")
+	}
+	env := a.envelope
+	if env == nil {
+		env = map[string]any{"object": "response"}
+	}
+	// 优先用增量累积出的 output（对截断流更稳健）；为空才保留信封自带的 output。
+	if reconstructed := a.collectItems(); len(reconstructed) > 0 {
+		env["output"] = reconstructed
+	} else if _, ok := env["output"]; !ok {
+		env["output"] = []any{}
+	}
+	return sonic.Marshal(env)
+}
+
+func (a *responsesAggregator) collectItems() []any {
+	maxIdx := -1
+	for idx := range a.items {
+		if idx > maxIdx {
+			maxIdx = idx
+		}
+	}
+	out := make([]any, 0, maxIdx+1)
+	for i := 0; i <= maxIdx; i++ {
+		if it, ok := a.items[i]; ok {
+			out = append(out, it)
+		}
+	}
+	return out
 }
 
 // ===== helpers =====
