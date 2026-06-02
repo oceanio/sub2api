@@ -402,13 +402,10 @@ func convertResponsesToAnthropicTools(tools []ResponsesTool) []AnthropicTool {
 				InputSchema: normalizeAnthropicInputSchema(t.Parameters),
 			})
 		default:
-			// Pass through unknown tool types
-			out = append(out, AnthropicTool{
-				Type:        t.Type,
-				Name:        t.Name,
-				Description: t.Description,
-				InputSchema: t.Parameters,
-			})
+			// Fork (CLAUDE.md §5): namespace grouping / unsupported OpenAI
+			// built-ins need special handling before pass-through, else
+			// Anthropic 400s on the unknown tool type. See tools_fork.go.
+			out = append(out, forkExpandResponsesTool(t)...)
 		}
 	}
 	return out

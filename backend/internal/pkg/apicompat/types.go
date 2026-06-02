@@ -248,11 +248,14 @@ type ResponsesContentPart struct {
 
 // ResponsesTool describes a tool in the Responses API.
 type ResponsesTool struct {
-	Type        string          `json:"type"` // "function" | "web_search" | "local_shell" etc.
+	Type        string          `json:"type"` // "function" | "web_search" | "namespace" | "local_shell" etc.
 	Name        string          `json:"name,omitempty"`
 	Description string          `json:"description,omitempty"`
 	Parameters  json.RawMessage `json:"parameters,omitempty"`
 	Strict      *bool           `json:"strict,omitempty"`
+	// Tools holds the child tools of a type="namespace" grouping (Codex bundles
+	// MCP/sub tools this way). Empty for all other tool types.
+	Tools []ResponsesTool `json:"tools,omitempty"`
 }
 
 // ResponsesResponse is the non-streaming response from POST /v1/responses.
