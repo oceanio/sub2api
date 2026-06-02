@@ -32,6 +32,17 @@ type ResponsesOutputAggregator struct {
 
 	// completed collects finished output items in order for response.completed.
 	completed []ResponsesOutput
+
+	// Terminal-stream tracking, used by EnsureTerminalEvents to guarantee a
+	// response.completed even when the upstream stream ends abnormally (e.g. an
+	// `error` event arrives before message_start, so the converter emits neither
+	// response.created nor response.completed). Without a terminal event Codex
+	// fails with "stream closed before response.completed".
+	sawCreated   bool
+	sawCompleted bool
+	lastSeq      int
+	respID       string
+	model        string
 }
 
 // NewResponsesOutputAggregator returns a ready-to-use aggregator.
@@ -45,7 +56,20 @@ func NewResponsesOutputAggregator() *ResponsesOutputAggregator {
 func (a *ResponsesOutputAggregator) Patch(events []ResponsesStreamEvent) []ResponsesStreamEvent {
 	for i := range events {
 		e := &events[i]
+		if e.SequenceNumber > a.lastSeq {
+			a.lastSeq = e.SequenceNumber
+		}
 		switch e.Type {
+		case "response.created", "response.in_progress":
+			a.sawCreated = true
+			if e.Response != nil {
+				if e.Response.ID != "" {
+					a.respID = e.Response.ID
+				}
+				if e.Response.Model != "" {
+					a.model = e.Response.Model
+				}
+			}
 		case "response.output_item.added":
 			a.startItem(e.Item)
 		case "response.output_text.delta":
@@ -70,13 +94,70 @@ func (a *ResponsesOutputAggregator) Patch(events []ResponsesStreamEvent) []Respo
 			}
 		case "response.output_item.done":
 			a.finishItem(e)
-		case "response.completed":
-			if e.Response != nil {
+		case "response.completed", "response.failed", "response.incomplete":
+			a.sawCompleted = true
+			if e.Type == "response.completed" && e.Response != nil {
 				e.Response.Output = a.outputs()
 			}
 		}
 	}
 	return events
+}
+
+// EnsureTerminalEvents returns the events needed to properly terminate the
+// Responses stream when the converter never emitted a terminal event — i.e. the
+// upstream stream ended abnormally before message_stop (and possibly before
+// message_start). Returns nil when a terminal event was already emitted.
+//
+// responseID/model seed the synthetic events; pass the converter state's values
+// (a generated id is used if both are empty). Clients treat response.completed
+// as authoritative, so we emit whatever partial output was aggregated rather
+// than failing the request — this turns "stream closed before response.completed"
+// into a clean (possibly empty) completion.
+func (a *ResponsesOutputAggregator) EnsureTerminalEvents(responseID, model string) []ResponsesStreamEvent {
+	if a.sawCompleted {
+		return nil
+	}
+	if responseID == "" {
+		responseID = a.respID
+	}
+	if responseID == "" {
+		responseID = generateResponsesID()
+	}
+	if model == "" {
+		model = a.model
+	}
+
+	var out []ResponsesStreamEvent
+	if !a.sawCreated {
+		a.lastSeq++
+		out = append(out, ResponsesStreamEvent{
+			Type:           "response.created",
+			SequenceNumber: a.lastSeq,
+			Response: &ResponsesResponse{
+				ID:     responseID,
+				Object: "response",
+				Model:  model,
+				Status: "in_progress",
+				Output: []ResponsesOutput{},
+			},
+		})
+		a.sawCreated = true
+	}
+	a.lastSeq++
+	out = append(out, ResponsesStreamEvent{
+		Type:           "response.completed",
+		SequenceNumber: a.lastSeq,
+		Response: &ResponsesResponse{
+			ID:     responseID,
+			Object: "response",
+			Model:  model,
+			Status: "completed",
+			Output: a.outputs(),
+		},
+	})
+	a.sawCompleted = true
+	return out
 }
 
 // startItem resets the per-item accumulators and captures identity for a

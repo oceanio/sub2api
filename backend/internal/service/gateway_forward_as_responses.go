@@ -244,23 +244,7 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 	var finalResp *apicompat.AnthropicResponse
 	var usage ClaudeUsage
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "event: ") {
-			continue
-		}
-		eventType := strings.TrimPrefix(line, "event: ")
-
-		// Read the data line
-		if !scanner.Scan() {
-			break
-		}
-		dataLine := scanner.Text()
-		if !strings.HasPrefix(dataLine, "data: ") {
-			continue
-		}
-		payload := dataLine[6:]
-
+	forEachUpstreamSSEEvent(scanner, func(eventType, payload string) bool {
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			logger.L().Warn("forward_as_responses buffered: failed to parse event",
@@ -268,7 +252,7 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 				zap.String("request_id", requestID),
 				zap.String("event_type", eventType),
 			)
-			continue
+			return false
 		}
 
 		// message_start carries the initial response structure
@@ -304,7 +288,8 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 				}
 			}
 		}
-	}
+		return false
+	})
 
 	if err := scanner.Err(); err != nil {
 		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
@@ -449,7 +434,13 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	}
 
 	finalizeStream := func() (*ForwardResult, error) {
-		if finalEvents := outputAgg.Patch(apicompat.FinalizeAnthropicResponsesStream(state)); len(finalEvents) > 0 {
+		finalEvents := outputAgg.Patch(apicompat.FinalizeAnthropicResponsesStream(state))
+		// Fork: guarantee a terminal response.completed even when the upstream
+		// stream ended abnormally (e.g. an `error` event before message_start, so
+		// the converter emits no terminal event). Otherwise Codex fails with
+		// "stream closed before response.completed".
+		finalEvents = append(finalEvents, outputAgg.EnsureTerminalEvents(state.ResponseID, state.Model)...)
+		if len(finalEvents) > 0 {
 			for _, evt := range finalEvents {
 				sse, err := apicompat.ResponsesEventToSSE(evt)
 				if err != nil {
@@ -463,24 +454,9 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 		return resultWithUsage(), nil
 	}
 
-	// Read Anthropic SSE events
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "event: ") {
-			continue
-		}
-		eventType := strings.TrimPrefix(line, "event: ")
-
-		// Read data line
-		if !scanner.Scan() {
-			break
-		}
-		dataLine := scanner.Text()
-		if !strings.HasPrefix(dataLine, "data: ") {
-			continue
-		}
-		payload := dataLine[6:]
-
+	// Read Anthropic SSE events (field-order independent).
+	disconnected := false
+	forEachUpstreamSSEEvent(scanner, func(eventType, payload string) bool {
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			logger.L().Warn("forward_as_responses stream: failed to parse event",
@@ -488,12 +464,17 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 				zap.String("request_id", requestID),
 				zap.String("event_type", eventType),
 			)
-			continue
+			return false
 		}
 
 		if processEvent(&event) {
-			return resultWithUsage(), nil
+			disconnected = true
+			return true
 		}
+		return false
+	})
+	if disconnected {
+		return resultWithUsage(), nil
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -514,6 +495,62 @@ func appendRawJSON(existing json.RawMessage, fragment string) json.RawMessage {
 		return json.RawMessage(fragment)
 	}
 	return json.RawMessage(string(existing) + fragment)
+}
+
+// forEachUpstreamSSEEvent parses Anthropic SSE events from scanner and invokes
+// fn(eventType, data) once per complete event. It follows the W3C EventSource
+// rules: `event:` and `data:` fields may appear in any order within an event and
+// the event is dispatched on a blank-line separator (or at EOF). `data:` lines
+// concatenate with "\n".
+//
+// This replaces an older line-pair parser that assumed `event:` always preceded
+// `data:` and read the immediately following line as the data. Some upstreams
+// emit `data:` before `event:` (valid SSE — field order is arbitrary); the old
+// parser silently dropped every event for those, producing an empty response.
+//
+// fn returns true to stop early (e.g. the client disconnected).
+func forEachUpstreamSSEEvent(scanner *bufio.Scanner, fn func(eventType, data string) (stop bool)) {
+	var eventType string
+	var data strings.Builder
+
+	dispatch := func() bool {
+		if data.Len() == 0 && eventType == "" {
+			return false
+		}
+		payload := data.String()
+		et := eventType
+		eventType = ""
+		data.Reset()
+		if payload == "" {
+			return false
+		}
+		return fn(et, payload)
+	}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			if dispatch() {
+				return
+			}
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "event:"):
+			eventType = strings.TrimSpace(line[len("event:"):])
+		case strings.HasPrefix(line, "data:"):
+			d := line[len("data:"):]
+			if len(d) > 0 && d[0] == ' ' {
+				d = d[1:]
+			}
+			if data.Len() > 0 {
+				data.WriteByte('\n')
+			}
+			data.WriteString(d)
+		}
+		// id:/retry:/comment lines are ignored.
+	}
+	dispatch() // trailing event with no blank line before EOF
 }
 
 // writeResponsesError writes an error response in OpenAI Responses API format.

@@ -31,6 +31,78 @@ func findResponsesEvent(events []ResponsesStreamEvent, typ string) *ResponsesStr
 	return nil
 }
 
+// runWithTerminalGuarantee mirrors the handler's finalizeStream: feed events,
+// finalize, then apply the EnsureTerminalEvents fallback.
+func runWithTerminalGuarantee(t *testing.T, in []AnthropicStreamEvent) []ResponsesStreamEvent {
+	t.Helper()
+	state := NewAnthropicEventToResponsesState()
+	state.Model = "claude-test"
+	agg := NewResponsesOutputAggregator()
+	var out []ResponsesStreamEvent
+	for i := range in {
+		out = append(out, agg.Patch(AnthropicEventToResponsesEvents(&in[i], state))...)
+	}
+	out = append(out, agg.Patch(FinalizeAnthropicResponsesStream(state))...)
+	out = append(out, agg.EnsureTerminalEvents(state.ResponseID, state.Model)...)
+	return out
+}
+
+// Regression: an upstream stream that ends before message_start (e.g. an
+// `error` event the converter drops) produces no terminal event from the
+// converter; EnsureTerminalEvents must synthesize response.created +
+// response.completed so Codex doesn't fail with "stream closed before
+// response.completed".
+func TestResponsesOutputAggregator_TerminalGuaranteeOnAbnormalEnd(t *testing.T) {
+	// No recognized events at all (converter emits nothing).
+	events := runWithTerminalGuarantee(t, []AnthropicStreamEvent{
+		{Type: "error"}, // dropped by the converter
+	})
+
+	created := findResponsesEvent(events, "response.created")
+	require.NotNil(t, created, "synthetic response.created must be emitted")
+	completed := findResponsesEvent(events, "response.completed")
+	require.NotNil(t, completed, "synthetic response.completed must be emitted")
+	require.NotNil(t, completed.Response)
+	assert.Equal(t, "completed", completed.Response.Status)
+	assert.NotNil(t, completed.Response.Output) // non-nil, marshals as []
+	assert.Equal(t, "claude-test", completed.Response.Model)
+	// created must precede completed.
+	var ci, fi = -1, -1
+	for i := range events {
+		if events[i].Type == "response.created" {
+			ci = i
+		}
+		if events[i].Type == "response.completed" {
+			fi = i
+		}
+	}
+	assert.Less(t, ci, fi, "response.created must come before response.completed")
+}
+
+// When the stream completed normally, EnsureTerminalEvents must be a no-op (no
+// duplicate terminal events).
+func TestResponsesOutputAggregator_TerminalGuaranteeNoDoubleOnNormalEnd(t *testing.T) {
+	events := runWithTerminalGuarantee(t, []AnthropicStreamEvent{
+		{Type: "message_start", Message: &AnthropicResponse{ID: "msg_ok", Model: "claude-test"}},
+		{Type: "content_block_start", ContentBlock: &AnthropicContentBlock{Type: "text"}},
+		{Type: "content_block_delta", Delta: &AnthropicDelta{Type: "text_delta", Text: "hi"}},
+		{Type: "content_block_stop"},
+		{Type: "message_stop"},
+	})
+
+	createdCount, completedCount := 0, 0
+	for i := range events {
+		switch events[i].Type {
+		case "response.created":
+			createdCount++
+		case "response.completed":
+			completedCount++
+		}
+	}
+	assert.Equal(t, 1, createdCount, "exactly one response.created")
+	assert.Equal(t, 1, completedCount, "exactly one response.completed (no duplicate from fallback)")
+}
+
 // Regression: the streamed text deltas must be aggregated back into the
 // terminal events. Clients like Codex treat response.completed.output as
 // authoritative, so an empty output[] (or missing item.content on
