@@ -458,6 +458,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if respCap != nil {
 				c.Writer = respCap.ResponseWriter
 			}
+			// Fork: 上游错误也记调试日志（成功路径的 enqueueDebugLog 不会执行到）
+			if err != nil && result == nil {
+				enqueueErrorDebugLog(h.debugLogService, c, debugLog, respCap, apiKey, reqModel, reqStream, service.DebugLogProtocolAnthropic, body)
+			}
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}
@@ -802,6 +806,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// Fork: Forward 完成后立刻还原 c.Writer，避免后续错误兜底/failover 写入污染 capture buf
 			if respCap != nil {
 				c.Writer = respCap.ResponseWriter
+			}
+			// Fork: 上游错误也记调试日志（成功路径的 enqueueDebugLog 不会执行到）
+			if err != nil && result == nil {
+				enqueueErrorDebugLog(h.debugLogService, c, debugLog, respCap, currentAPIKey, reqModel, reqStream, service.DebugLogProtocolAnthropic, body)
 			}
 
 			// 兜底释放串行锁（正常情况已通过回调提前释放）

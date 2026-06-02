@@ -135,3 +135,41 @@ func enqueueDebugLog(
 		svc.Enqueue(entry)
 	}()
 }
+
+// enqueueErrorDebugLog records a debug log for a request that reached upstream
+// but failed. The success-path enqueueDebugLog never runs for these, so without
+// this an errored request has no debug log to view from the ops monitoring page.
+//
+// Call it from the post-Forward error branch (gated `err != nil && result == nil`):
+// auth/validation errors return before forwarding, so reaching here means an
+// upstream/forward error. Per the debug-log design, multiple records may share a
+// request_id across failover attempts — that is expected.
+//
+// The response body is best-effort: respCap is unwrapped before the error
+// fallback/failover response is written, so for non-streamed errors respBody is
+// empty (a partial stream is captured for streamed ones). The request body and
+// headers — the point of "view the request debug log" — are always captured; the
+// upstream error response itself is already recorded in ops_error_logs.
+func enqueueErrorDebugLog(
+	svc *service.RequestDebugLogService,
+	c *gin.Context,
+	debugLog bool,
+	respCap *responseCapture,
+	apiKey *service.APIKey,
+	model string,
+	stream bool,
+	protocol service.DebugLogProtocol,
+	reqBody []byte,
+) {
+	if svc == nil || !debugLog {
+		return
+	}
+	// No ForwardResult on the error path; resolve the same correlation id the
+	// success path / usage logs use so the ops error record links to this log.
+	requestID := service.ResolveCorrelationID(c.Request.Context(), "")
+	var respBody []byte
+	if respCap != nil {
+		respBody = respCap.captured()
+	}
+	enqueueDebugLog(svc, c.Request.Context(), requestID, apiKey, model, stream, protocol, c.Request.Header, reqBody, c.Writer.Header(), respBody)
+}

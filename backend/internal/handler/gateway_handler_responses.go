@@ -238,6 +238,10 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		if respCap != nil {
 			c.Writer = respCap.ResponseWriter
 		}
+		// Fork: 上游错误也记调试日志（成功路径的 enqueueDebugLog 不会执行到）
+		if err != nil && result == nil {
+			enqueueErrorDebugLog(h.debugLogService, c, debugLog, respCap, apiKey, reqModel, reqStream, service.DebugLogProtocolOpenAI, body)
+		}
 
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
